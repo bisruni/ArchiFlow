@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, TYPE_CHECKING, Iterable
@@ -30,6 +31,12 @@ ProgressFn = Callable[[OperationProgress], None]
 
 
 class FileOrganizer:
+    def __init__(self) -> None:
+        self._tx_flush_interval_seconds = 0.25
+        self._tx_last_flush_monotonic = 0.0
+        self._tx_dirty = False
+        self._tx_context_key: str | None = None
+
     def process_duplicates(
         self,
         duplicate_groups: list[DuplicateGroup],
@@ -251,8 +258,8 @@ class FileOrganizer:
                 )
             )
 
-    @staticmethod
     def _append_transaction_entry(
+        self,
         *,
         transaction: OperationTransaction | None,
         transaction_service: TransactionService | None,
@@ -262,17 +269,46 @@ class FileOrganizer:
         if transaction is None:
             return
         transaction.entries.append(entry)
-        FileOrganizer._flush_transaction(transaction, transaction_service, transaction_file_path)
+        self._flush_transaction(transaction, transaction_service, transaction_file_path)
 
-    @staticmethod
     def _flush_transaction(
+        self,
+        transaction: OperationTransaction | None,
+        transaction_service: TransactionService | None,
+        transaction_file_path: Path | None,
+        *,
+        force: bool = False,
+    ) -> None:
+        if transaction is None or transaction_service is None or transaction_file_path is None:
+            return
+
+        key = str(transaction_file_path.resolve())
+        if self._tx_context_key != key:
+            self._tx_context_key = key
+            self._tx_last_flush_monotonic = 0.0
+            self._tx_dirty = False
+
+        self._tx_dirty = True
+        now = time.monotonic()
+        if not force and (now - self._tx_last_flush_monotonic) < self._tx_flush_interval_seconds:
+            return
+
+        transaction_service.save_transaction_to_path(transaction, transaction_file_path)
+        self._tx_last_flush_monotonic = now
+        self._tx_dirty = False
+
+    def finalize_transaction_journal(
+        self,
         transaction: OperationTransaction | None,
         transaction_service: TransactionService | None,
         transaction_file_path: Path | None,
     ) -> None:
-        if transaction is None or transaction_service is None or transaction_file_path is None:
-            return
-        transaction_service.save_transaction_to_path(transaction, transaction_file_path)
+        self._flush_transaction(
+            transaction,
+            transaction_service,
+            transaction_file_path,
+            force=True,
+        )
 
 
 def safe_relative_path(path: Path, root: Path) -> Path:

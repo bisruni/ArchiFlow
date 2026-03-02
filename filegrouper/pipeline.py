@@ -153,47 +153,52 @@ class FileGrouperEngine:
                 # Create transaction journal before any filesystem mutation.
                 transaction_path = self.transaction_service.save_transaction(transaction)
 
-            to_skip: list[FileRecord] = []
-            if options.execution_scope.includes_dedupe:
-                to_skip = self.organizer.process_duplicates(
-                    duplicate_groups,
-                    dedupe_mode=options.dedupe_mode,
-                    protected_paths=options.duplicate_protected_paths,
-                    source_root=source,
-                    target_root=target,
-                    dry_run=options.dry_run,
-                    summary=summary,
-                    transaction=transaction,
-                    transaction_service=self.transaction_service,
-                    transaction_file_path=transaction_path,
-                    log=log,
-                    progress=progress,
-                    cancel_event=cancel_event,
-                    pause_controller=pause_controller,
-                )
+            try:
+                to_skip: list[FileRecord] = []
+                if options.execution_scope.includes_dedupe:
+                    to_skip = self.organizer.process_duplicates(
+                        duplicate_groups,
+                        dedupe_mode=options.dedupe_mode,
+                        protected_paths=options.duplicate_protected_paths,
+                        source_root=source,
+                        target_root=target,
+                        dry_run=options.dry_run,
+                        summary=summary,
+                        transaction=transaction,
+                        transaction_service=self.transaction_service,
+                        transaction_file_path=transaction_path,
+                        log=log,
+                        progress=progress,
+                        cancel_event=cancel_event,
+                        pause_controller=pause_controller,
+                    )
 
-            if options.execution_scope.includes_grouping:
-                skip_set = {str(item.full_path).lower() for item in to_skip}
-                remaining_total = len(files) - len(to_skip)
-                remaining = (item for item in files if str(item.full_path).lower() not in skip_set)
-                self.organizer.organize_by_category_and_date(
-                    remaining,
-                    total_files=max(0, remaining_total),
-                    target_root=target,
-                    mode=options.organization_mode,
-                    dry_run=options.dry_run,
-                    summary=summary,
-                    transaction=transaction,
-                    transaction_service=self.transaction_service,
-                    transaction_file_path=transaction_path,
-                    log=log,
-                    progress=progress,
-                    cancel_event=cancel_event,
-                    pause_controller=pause_controller,
-                )
-
-            if not options.dry_run and transaction_path is not None:
-                self.transaction_service.save_transaction_to_path(transaction, transaction_path)
+                if options.execution_scope.includes_grouping:
+                    skip_set = {str(item.full_path).lower() for item in to_skip}
+                    remaining_total = len(files) - len(to_skip)
+                    remaining = (item for item in files if str(item.full_path).lower() not in skip_set)
+                    self.organizer.organize_by_category_and_date(
+                        remaining,
+                        total_files=max(0, remaining_total),
+                        target_root=target,
+                        mode=options.organization_mode,
+                        dry_run=options.dry_run,
+                        summary=summary,
+                        transaction=transaction,
+                        transaction_service=self.transaction_service,
+                        transaction_file_path=transaction_path,
+                        log=log,
+                        progress=progress,
+                        cancel_event=cancel_event,
+                        pause_controller=pause_controller,
+                    )
+            finally:
+                if not options.dry_run and transaction_path is not None:
+                    self.organizer.finalize_transaction_journal(
+                        transaction,
+                        self.transaction_service,
+                        transaction_path,
+                    )
 
         result = RunResult(
             source_path=source,
