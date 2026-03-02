@@ -91,17 +91,20 @@ python3 main.py apply \
 2. Hedef klasoru sec (gruplama varsa zorunlu)
 3. Ustteki sekmeden is akisini sec: `Hepsi` / `Kopya Analizi` / `Gruplandirma`
 4. `Onizleme` ile kontrol et
-5. `Kopyalar` sekmesinde bir satira cift tiklayip hangi dosyalarin korunacagini sec
-6. `Test modu`nu kapatip `Secili Islemi Uygula`
+5. `Kopyalar` sekmesinde satira cift tiklayip dosya konumunu ac
+6. Gerekirse `Grup Detayi` ile koru/sil secimini duzenle
+7. `Uygula` onayi ekranini kontrol et
+8. `Test modu`nu kapatip `Secili Islemi Uygula`
 
 ## Guvenlik Kurallari
 
 - Kaynak ve hedef ayni olamaz.
 - Hedef, kaynak klasorun icinde olamaz.
 - `quarantine` modunda kopyalar su klasore tasinir:
-  `SOURCE/Duplicates_Quarantine/<timestamp>/...`
+  `TARGET/.filegrouper_quarantine/<timestamp>/...`
 - `Benzer gorseller` analizi sadece rapor/inceleme icindir; otomatik silme yapmaz.
 - Yapilan islem kayitlari `.filegrouper/transactions` altina yazilir.
+- Her islemde JSON+CSV raporu otomatik yazilir: `.filegrouper/reports/`
 - `Son Islemi Geri Al` transaction kaydina gore calisir.
 
 ## Not

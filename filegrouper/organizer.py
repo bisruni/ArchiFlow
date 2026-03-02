@@ -4,7 +4,7 @@ import shutil
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TYPE_CHECKING, Iterable
 
 from .classifier import folder_name
 from .errors import OperationCancelledError
@@ -19,7 +19,11 @@ from .models import (
     OrganizationMode,
     TransactionAction,
     TransactionEntry,
+    TransactionStatus,
 )
+
+if TYPE_CHECKING:
+    from .transaction_service import TransactionService
 
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[OperationProgress], None]
@@ -33,9 +37,12 @@ class FileOrganizer:
         dedupe_mode: DedupeMode,
         protected_paths: set[str] | None,
         source_root: Path,
+        target_root: Path,
         dry_run: bool,
         summary: OperationSummary,
         transaction: OperationTransaction | None,
+        transaction_service: TransactionService | None,
+        transaction_file_path: Path | None,
         log: LogFn | None,
         progress: ProgressFn | None,
         cancel_event: threading.Event | None,
@@ -67,50 +74,71 @@ class FileOrganizer:
         if not to_remove:
             return []
 
-        quarantine_root = source_root / "Duplicates_Quarantine" / datetime.now().strftime("%Y%m%d_%H%M%S")
+        quarantine_root = target_root / ".filegrouper_quarantine" / datetime.now().strftime("%Y%m%d_%H%M%S")
 
         for index, duplicate in enumerate(to_remove, start=1):
             if cancel_event is not None and cancel_event.is_set():
                 raise OperationCancelledError()
             if pause_controller is not None:
                 pause_controller.wait_if_paused(cancel_event)
+            tx_entry: TransactionEntry | None = None
 
             if not duplicate.full_path.exists():
+                summary.skipped_files.append(str(duplicate.full_path))
                 continue
 
             try:
                 if dedupe_mode is DedupeMode.DELETE:
                     if not dry_run:
+                        tx_entry = TransactionEntry(
+                            action=TransactionAction.DELETED_DUPLICATE,
+                            source_path=duplicate.full_path,
+                            destination_path=None,
+                            timestamp_utc=datetime.utcnow(),
+                            status=TransactionStatus.PENDING,
+                        )
+                        self._append_transaction_entry(
+                            transaction=transaction,
+                            transaction_service=transaction_service,
+                            transaction_file_path=transaction_file_path,
+                            entry=tx_entry,
+                        )
+                    if not dry_run:
                         duplicate.full_path.unlink(missing_ok=True)
                     summary.duplicates_deleted += 1
-                    if transaction is not None:
-                        transaction.entries.append(
-                            TransactionEntry(
-                                action=TransactionAction.DELETED_DUPLICATE,
-                                source_path=duplicate.full_path,
-                                destination_path=None,
-                                timestamp_utc=datetime.utcnow(),
-                            )
-                        )
+                    if tx_entry is not None:
+                        tx_entry.status = TransactionStatus.DONE
+                        self._flush_transaction(transaction, transaction_service, transaction_file_path)
                 else:
                     relative = safe_relative_path(duplicate.full_path, source_root)
                     destination = build_unique_path(quarantine_root / relative)
+                    if not dry_run:
+                        tx_entry = TransactionEntry(
+                            action=TransactionAction.QUARANTINED_DUPLICATE,
+                            source_path=duplicate.full_path,
+                            destination_path=destination,
+                            timestamp_utc=datetime.utcnow(),
+                            status=TransactionStatus.PENDING,
+                        )
+                        self._append_transaction_entry(
+                            transaction=transaction,
+                            transaction_service=transaction_service,
+                            transaction_file_path=transaction_file_path,
+                            entry=tx_entry,
+                        )
 
                     if not dry_run:
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         shutil.move(str(duplicate.full_path), str(destination))
 
                     summary.duplicates_quarantined += 1
-                    if transaction is not None:
-                        transaction.entries.append(
-                            TransactionEntry(
-                                action=TransactionAction.QUARANTINED_DUPLICATE,
-                                source_path=duplicate.full_path,
-                                destination_path=destination,
-                                timestamp_utc=datetime.utcnow(),
-                            )
-                        )
+                    if tx_entry is not None:
+                        tx_entry.status = TransactionStatus.DONE
+                        self._flush_transaction(transaction, transaction_service, transaction_file_path)
             except Exception as exc:  # noqa: BLE001
+                if tx_entry is not None:
+                    tx_entry.status = TransactionStatus.FAILED
+                    self._flush_transaction(transaction, transaction_service, transaction_file_path)
                 summary.errors.append(f"Could not process duplicate '{duplicate.full_path}': {exc}")
                 if log:
                     log(f"Could not process duplicate '{duplicate.full_path}': {exc}")
@@ -129,13 +157,16 @@ class FileOrganizer:
 
     def organize_by_category_and_date(
         self,
-        files: list[FileRecord],
+        files: Iterable[FileRecord],
         *,
+        total_files: int | None,
         target_root: Path,
         mode: OrganizationMode,
         dry_run: bool,
         summary: OperationSummary,
         transaction: OperationTransaction | None,
+        transaction_service: TransactionService | None,
+        transaction_file_path: Path | None,
         log: LogFn | None,
         progress: ProgressFn | None,
         cancel_event: threading.Event | None,
@@ -144,13 +175,18 @@ class FileOrganizer:
         if not dry_run:
             target_root.mkdir(parents=True, exist_ok=True)
 
+        total = total_files or 0
+        last_index = 0
         for index, file in enumerate(files, start=1):
+            last_index = index
             if cancel_event is not None and cancel_event.is_set():
                 raise OperationCancelledError()
             if pause_controller is not None:
                 pause_controller.wait_if_paused(cancel_event)
+            tx_entry: TransactionEntry | None = None
 
             if not file.full_path.exists():
+                summary.skipped_files.append(str(file.full_path))
                 continue
 
             local_time = file.last_write_utc.astimezone()
@@ -166,25 +202,32 @@ class FileOrganizer:
 
             try:
                 destination_folder.mkdir(parents=True, exist_ok=True)
+                tx_action = TransactionAction.COPIED if mode is OrganizationMode.COPY else TransactionAction.MOVED
+                tx_entry = TransactionEntry(
+                    action=tx_action,
+                    source_path=file.full_path,
+                    destination_path=destination_path,
+                    timestamp_utc=datetime.utcnow(),
+                    status=TransactionStatus.PENDING,
+                )
+                self._append_transaction_entry(
+                    transaction=transaction,
+                    transaction_service=transaction_service,
+                    transaction_file_path=transaction_file_path,
+                    entry=tx_entry,
+                )
                 if mode is OrganizationMode.COPY:
                     shutil.copy2(file.full_path, destination_path)
                     summary.files_copied += 1
-                    action = TransactionAction.COPIED
                 else:
                     shutil.move(str(file.full_path), str(destination_path))
                     summary.files_moved += 1
-                    action = TransactionAction.MOVED
-
-                if transaction is not None:
-                    transaction.entries.append(
-                        TransactionEntry(
-                            action=action,
-                            source_path=file.full_path,
-                            destination_path=destination_path,
-                            timestamp_utc=datetime.utcnow(),
-                        )
-                    )
+                tx_entry.status = TransactionStatus.DONE
+                self._flush_transaction(transaction, transaction_service, transaction_file_path)
             except Exception as exc:  # noqa: BLE001
+                if tx_entry is not None:
+                    tx_entry.status = TransactionStatus.FAILED
+                    self._flush_transaction(transaction, transaction_service, transaction_file_path)
                 summary.errors.append(f"Could not process '{file.full_path}': {exc}")
                 if log:
                     log(f"Could not process '{file.full_path}': {exc}")
@@ -194,10 +237,42 @@ class FileOrganizer:
                     OperationProgress(
                         stage=OperationStage.ORGANIZING,
                         processed_files=index,
-                        total_files=len(files),
+                        total_files=total,
                         message="Organizing files",
                     )
                 )
+        if progress and total > 0 and last_index % 50 != 0:
+            progress(
+                OperationProgress(
+                    stage=OperationStage.ORGANIZING,
+                    processed_files=last_index,
+                    total_files=total,
+                    message="Organizing files",
+                )
+            )
+
+    @staticmethod
+    def _append_transaction_entry(
+        *,
+        transaction: OperationTransaction | None,
+        transaction_service: TransactionService | None,
+        transaction_file_path: Path | None,
+        entry: TransactionEntry,
+    ) -> None:
+        if transaction is None:
+            return
+        transaction.entries.append(entry)
+        FileOrganizer._flush_transaction(transaction, transaction_service, transaction_file_path)
+
+    @staticmethod
+    def _flush_transaction(
+        transaction: OperationTransaction | None,
+        transaction_service: TransactionService | None,
+        transaction_file_path: Path | None,
+    ) -> None:
+        if transaction is None or transaction_service is None or transaction_file_path is None:
+            return
+        transaction_service.save_transaction_to_path(transaction, transaction_file_path)
 
 
 def safe_relative_path(path: Path, root: Path) -> Path:

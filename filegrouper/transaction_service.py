@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .models import OperationSummary, OperationTransaction, TransactionAction
+from .models import OperationSummary, OperationTransaction, TransactionAction, TransactionStatus
 
 
 class TransactionService:
@@ -12,6 +12,11 @@ class TransactionService:
         tx_root.mkdir(parents=True, exist_ok=True)
         filename = f"{transaction.created_at_utc.strftime('%Y%m%d_%H%M%S')}_{transaction.transaction_id}.json"
         destination = tx_root / filename
+        self.save_transaction_to_path(transaction, destination)
+        return destination
+
+    def save_transaction_to_path(self, transaction: OperationTransaction, destination: Path) -> Path:
+        destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("w", encoding="utf-8") as stream:
             json.dump(transaction.to_dict(), stream, ensure_ascii=True, indent=2)
         return destination
@@ -40,6 +45,13 @@ class TransactionService:
         summary = OperationSummary()
 
         for entry in reversed(transaction.entries):
+            if entry.status is not TransactionStatus.DONE:
+                if log:
+                    log(
+                        f"Undo skipped ({entry.status.value}) for '{entry.source_path}' "
+                        f"[{entry.action.value}]"
+                    )
+                continue
             try:
                 if entry.action is TransactionAction.COPIED:
                     if entry.destination_path and entry.destination_path.exists():
@@ -56,10 +68,14 @@ class TransactionService:
                         entry.destination_path.rename(entry.source_path)
                         summary.duplicates_quarantined += 1
                 elif entry.action is TransactionAction.DELETED_DUPLICATE:
-                    summary.duplicates_deleted += 1
+                    summary.errors.append(
+                        f"Cannot restore deleted duplicate (not reversible): {entry.source_path}"
+                    )
                     if log:
                         log(f"Skipped deleted duplicate restore: {entry.source_path}")
             except Exception as exc:  # noqa: BLE001
                 summary.errors.append(f"Undo failed for '{entry.source_path}': {exc}")
+                if log:
+                    log(f"Undo failed for '{entry.source_path}': {exc}")
 
         return summary

@@ -15,21 +15,35 @@ try:
 except Exception:
     Image = None
 
+try:
+    import pillow_heif  # type: ignore
+    pillow_heif.register_heif_opener()
+except Exception:
+    pass
+
 LogFn = Callable[[str], None]
 ProgressFn = Callable[[OperationProgress], None]
 
 
 SUPPORTED_SIMILAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic"}
 
-QUICK_EDGE_BYTES = 1024 * 1024
-QUICK_MIDDLE_BYTES = 128 * 1024
+# Quick signature reads a few slices of the file (fast). Used as stage-1 filter before full SHA.
+QUICK_EDGE_BYTES = 1024 * 1024     # first/last 1MB
+QUICK_MIDDLE_BYTES = 128 * 1024    # 128KB samples in middle
+
+# Similar image: dHash(64-bit) + banding candidate generation (avoid N^2).
 SIMILAR_HASH_BITS = 64
 SIMILAR_BAND_BITS = 16
 SIMILAR_BAND_COUNT = SIMILAR_HASH_BITS // SIMILAR_BAND_BITS
-SIMILAR_MAX_PAIRS = 2_000_000
+SIMILAR_MAX_PAIRS = 2_000_000  # hard cap to avoid runaway on huge libraries
+_SIMILAR_UNAVAILABLE_LOGGED = False
 
 
 class DuplicateDetector:
+    @staticmethod
+    def is_similar_supported() -> bool:
+        return Image is not None
+
     def find_duplicates(
         self,
         files: list[FileRecord],
@@ -42,15 +56,17 @@ class DuplicateDetector:
         cancel_event: threading.Event | None,
         pause_controller=None,
     ) -> tuple[list[DuplicateGroup], list[SimilarImageGroup]]:
+        # 1) group by size (cheap)
         grouped_by_size: dict[int, list[FileRecord]] = defaultdict(list)
         for file in files:
             grouped_by_size[file.size_bytes].append(file)
 
         size_candidates = [group for group in grouped_by_size.values() if len(group) > 1]
+
+        # 2) stage-1 quick signature (fast IO) to reduce candidates
         quick_total = sum(len(group) for group in size_candidates)
         quick_processed = 0
 
-        # Stage-1: quick signatures for cheap candidate filtering.
         hash_input_groups: list[list[FileRecord]] = []
         for size_group in size_candidates:
             by_quick: dict[str, list[FileRecord]] = defaultdict(list)
@@ -88,7 +104,7 @@ class DuplicateDetector:
                 if len(quick_group) > 1:
                     hash_input_groups.append(quick_group)
 
-        # Stage-2: full SHA-256 only for filtered candidates.
+        # 3) stage-2 full SHA only on filtered candidates
         groups: list[DuplicateGroup] = []
         full_total = sum(len(group) for group in hash_input_groups)
         full_processed = 0
@@ -125,20 +141,32 @@ class DuplicateDetector:
                         )
                     )
 
+            # 4) final safety: even if SHA matches, verify byte-identical to avoid any edge-case corruption/cache bugs
             for sha256_hash, file_list in by_hash.items():
                 if len(file_list) <= 1:
                     continue
-                # Final safety gate: even with matching SHA/cache, only exact byte-equal files
-                # are accepted into duplicate groups.
-                exact_groups = split_exact_groups(file_list, cancel_event=cancel_event, pause_controller=pause_controller)
+
+                exact_groups = split_exact_groups(
+                    file_list,
+                    cancel_event=cancel_event,
+                    pause_controller=pause_controller,
+                )
+
                 for exact_group in exact_groups:
                     if len(exact_group) <= 1:
                         continue
                     ordered = sorted(exact_group, key=lambda item: (item.last_write_utc, str(item.full_path).lower()))
-                    groups.append(DuplicateGroup(sha256_hash=sha256_hash, size_bytes=ordered[0].size_bytes, files=ordered))
+                    groups.append(
+                        DuplicateGroup(
+                            sha256_hash=sha256_hash,
+                            size_bytes=ordered[0].size_bytes,
+                            files=ordered,
+                        )
+                    )
 
         duplicate_groups = sorted(groups, key=lambda item: (-len(item.files), -item.size_bytes, item.sha256_hash))
 
+        # Similar images (optional)
         similar_groups: list[SimilarImageGroup] = []
         if detect_similar_images:
             similar_groups = self.find_similar_images(
@@ -167,14 +195,17 @@ class DuplicateDetector:
             return []
 
         if Image is None:
-            if log:
+            global _SIMILAR_UNAVAILABLE_LOGGED
+            if log and not _SIMILAR_UNAVAILABLE_LOGGED:
                 log("Similar image detection skipped: Pillow is not installed.")
+                _SIMILAR_UNAVAILABLE_LOGGED = True
             return []
 
-        # Compute real perceptual hashes (dHash) from decoded image pixels.
+        # 1) compute real perceptual hashes (dHash) from decoded image pixels
         image_hashes: list[tuple[FileRecord, int]] = []
         for index, item in enumerate(images, start=1):
             _guard_cancel(cancel_event, pause_controller)
+
             try:
                 image_hashes.append((item, compute_dhash(item.full_path)))
             except Exception as exc:  # noqa: BLE001
@@ -194,11 +225,12 @@ class DuplicateDetector:
         if len(image_hashes) < 2:
             return []
 
-        # Candidate generation with banding: avoid N^2 full pair scan.
+        # 2) candidate generation with banding (avoid N^2)
         candidate_pairs, limited = build_similarity_candidate_pairs(image_hashes, max_pairs=SIMILAR_MAX_PAIRS)
         if limited and log:
             log(f"Similar image candidate pairs limited to {SIMILAR_MAX_PAIRS} for performance.")
 
+        # 3) union-find clustering by hamming distance
         parent = list(range(len(image_hashes)))
         rank = [0] * len(image_hashes)
 
@@ -260,7 +292,7 @@ class DuplicateDetector:
         return similar_groups
 
 
-def _guard_cancel(cancel_event: threading.Event | None, pause_controller) -> None:
+def _guard_cancel(cancel_event: threading.Event | None, pause_controller=None) -> None:
     if cancel_event is not None and cancel_event.is_set():
         raise OperationCancelledError()
     if pause_controller is not None:
@@ -279,127 +311,156 @@ def compute_sha256(path: Path) -> str:
 
 
 def compute_quick_signature(path: Path) -> str:
+    """
+    Fast content signature using a few slices of the file. Used only to filter candidates,
+    never as the final truth (full SHA + exact compare is used for that).
+    """
+    size = path.stat().st_size
+    if size <= 0:
+        return "empty"
+
+    offsets: list[tuple[int, int]] = []
+    # first edge
+    offsets.append((0, min(QUICK_EDGE_BYTES, size)))
+    # middle samples
+    if size > QUICK_EDGE_BYTES * 2:
+        mid = size // 2
+        start = max(0, mid - QUICK_MIDDLE_BYTES // 2)
+        offsets.append((start, min(QUICK_MIDDLE_BYTES, size - start)))
+    # last edge
+    if size > QUICK_EDGE_BYTES:
+        offsets.append((max(0, size - QUICK_EDGE_BYTES), min(QUICK_EDGE_BYTES, size)))
+
+    h = hashlib.blake2b(digest_size=16)
+    h.update(str(size).encode("utf-8"))
+
     with path.open("rb") as stream:
-        stream.seek(0, 2)
-        length = stream.tell()
-        if length <= 0:
-            return "0"
+        for off, ln in offsets:
+            stream.seek(off)
+            chunk = stream.read(ln)
+            h.update(chunk)
 
-        hasher = hashlib.blake2b(digest_size=16)
-        hasher.update(length.to_bytes(8, byteorder="little", signed=False))
-
-        edge = min(QUICK_EDGE_BYTES, length)
-        mid = min(QUICK_MIDDLE_BYTES, length)
-
-        stream.seek(0)
-        hasher.update(stream.read(edge))
-
-        if length > edge:
-            stream.seek(max(0, length - edge))
-            hasher.update(stream.read(edge))
-
-        middle_offsets = {max(0, length // 2 - mid // 2), max(0, length // 3 - mid // 2), max(0, (2 * length) // 3 - mid // 2)}
-        for offset in sorted(middle_offsets):
-            stream.seek(offset)
-            hasher.update(stream.read(mid))
-
-    return hasher.hexdigest().lower()
-
-
-def compute_dhash(path: Path, size: int = 8) -> int:
-    if Image is None:
-        raise RuntimeError("Pillow is required for image hashing.")
-
-    with Image.open(path) as image:
-        if hasattr(Image, "Resampling"):
-            resample = Image.Resampling.LANCZOS
-        else:
-            resample = Image.LANCZOS
-        resized = image.convert("L").resize((size + 1, size), resample)
-        pixels = list(resized.getdata())
-
-    value = 0
-    row_width = size + 1
-    for y in range(size):
-        row_offset = y * row_width
-        for x in range(size):
-            left = pixels[row_offset + x]
-            right = pixels[row_offset + x + 1]
-            value = (value << 1) | (1 if left > right else 0)
-    return value
-
-
-def build_similarity_candidate_pairs(
-    items: list[tuple[FileRecord, int]],
-    *,
-    max_pairs: int,
-) -> tuple[list[tuple[int, int]], bool]:
-    buckets: dict[tuple[int, int], list[int]] = defaultdict(list)
-    for idx, (_, image_hash) in enumerate(items):
-        for band_index in range(SIMILAR_BAND_COUNT):
-            shift = band_index * SIMILAR_BAND_BITS
-            band_value = (image_hash >> shift) & ((1 << SIMILAR_BAND_BITS) - 1)
-            buckets[(band_index, band_value)].append(idx)
-
-    pairs: set[tuple[int, int]] = set()
-    limited = False
-    for bucket in buckets.values():
-        if len(bucket) < 2:
-            continue
-        for left_idx in range(len(bucket)):
-            a = bucket[left_idx]
-            for right_idx in range(left_idx + 1, len(bucket)):
-                b = bucket[right_idx]
-                if a < b:
-                    pairs.add((a, b))
-                else:
-                    pairs.add((b, a))
-                if len(pairs) >= max_pairs:
-                    limited = True
-                    return list(pairs), limited
-
-    return list(pairs), limited
-
-
-def hamming_distance(a: int, b: int) -> int:
-    return (a ^ b).bit_count()
+    return h.hexdigest().lower()
 
 
 def split_exact_groups(
     files: list[FileRecord],
     *,
     cancel_event: threading.Event | None,
-    pause_controller,
+    pause_controller=None,
 ) -> list[list[FileRecord]]:
+    """
+    Safety gate: split into groups where files are byte-identical.
+    Protects against extremely rare cases (cache mismatch, silent corruption, etc.).
+    """
+    if len(files) < 2:
+        return [files]
+
     groups: list[list[FileRecord]] = []
-    for file in files:
+    used = [False] * len(files)
+
+    for i in range(len(files)):
         _guard_cancel(cancel_event, pause_controller)
-        placed = False
-        for group in groups:
-            if are_files_byte_equal(file.full_path, group[0].full_path):
-                group.append(file)
-                placed = True
-                break
-        if not placed:
-            groups.append([file])
+        if used[i]:
+            continue
+        base = files[i]
+        bucket = [base]
+        used[i] = True
+
+        for j in range(i + 1, len(files)):
+            _guard_cancel(cancel_event, pause_controller)
+            if used[j]:
+                continue
+            if files[j].size_bytes != base.size_bytes:
+                continue
+            if files[j].full_path == base.full_path:
+                continue
+            if files_equal(base.full_path, files[j].full_path):
+                bucket.append(files[j])
+                used[j] = True
+
+        groups.append(bucket)
+
     return groups
 
 
-def are_files_byte_equal(left: Path, right: Path) -> bool:
-    try:
-        if left == right:
-            return True
-        if left.stat().st_size != right.stat().st_size:
-            return False
-
-        buf_size = 1024 * 1024
-        with left.open("rb") as ls, right.open("rb") as rs:
-            while True:
-                lb = ls.read(buf_size)
-                rb = rs.read(buf_size)
-                if lb != rb:
-                    return False
-                if not lb:
-                    return True
-    except OSError:
+def files_equal(a: Path, b: Path) -> bool:
+    """
+    Byte-by-byte equality check (streaming, low memory).
+    """
+    if a.stat().st_size != b.stat().st_size:
         return False
+
+    buf = 1024 * 1024
+    with a.open("rb") as fa, b.open("rb") as fb:
+        while True:
+            ca = fa.read(buf)
+            cb = fb.read(buf)
+            if ca != cb:
+                return False
+            if not ca:
+                return True
+
+
+def compute_dhash(path: Path, size: int = 9) -> int:
+    """
+    dHash 64-bit perceptual hash.
+    """
+    img = Image.open(path)  # type: ignore[union-attr]
+    img = img.convert("L").resize((size, size - 1))  # 9x8 -> 64 comparisons
+    pixels = list(img.getdata())
+
+    value = 0
+    bit = 0
+    for row in range(size - 1):
+        for col in range(size - 1):
+            left = pixels[row * size + col]
+            right = pixels[row * size + col + 1]
+            if left > right:
+                value |= 1 << bit
+            bit += 1
+    return value
+
+
+def build_similarity_candidate_pairs(
+    image_hashes: list[tuple[FileRecord, int]],
+    *,
+    max_pairs: int,
+) -> tuple[list[tuple[int, int]], bool]:
+    """
+    Banding: split 64-bit hash into 4x16-bit bands.
+    Files that share any band are considered candidate pairs.
+    """
+    buckets: list[dict[int, list[int]]] = [defaultdict(list) for _ in range(SIMILAR_BAND_COUNT)]
+    for idx, (_, h) in enumerate(image_hashes):
+        for b in range(SIMILAR_BAND_COUNT):
+            shift = b * SIMILAR_BAND_BITS
+            band = (h >> shift) & ((1 << SIMILAR_BAND_BITS) - 1)
+            buckets[b][band].append(idx)
+
+    seen: set[tuple[int, int]] = set()
+    pairs: list[tuple[int, int]] = []
+    limited = False
+
+    for bucket_map in buckets:
+        for indices in bucket_map.values():
+            if len(indices) < 2:
+                continue
+            indices = sorted(indices)
+            for i in range(len(indices)):
+                for j in range(i + 1, len(indices)):
+                    a, b = indices[i], indices[j]
+                    key = (a, b)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    pairs.append(key)
+                    if len(pairs) >= max_pairs:
+                        limited = True
+                        return pairs, limited
+
+    return pairs, limited
+
+
+def hamming_distance(a: int, b: int) -> int:
+    return (a ^ b).bit_count()

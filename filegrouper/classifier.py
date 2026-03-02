@@ -44,11 +44,11 @@ def classify(path: Path) -> FileCategory:
 
 def folder_name(category: FileCategory) -> str:
     return {
-        FileCategory.IMAGE: "images",
-        FileCategory.VIDEO: "videos",
-        FileCategory.AUDIO: "audio",
-        FileCategory.TEXT: "text",
-        FileCategory.APPLICATION: "applications",
-        FileCategory.ARCHIVE: "archives",
-        FileCategory.OTHER: "other",
+        FileCategory.IMAGE: "Images",
+        FileCategory.VIDEO: "Videos",
+        FileCategory.AUDIO: "Audio",
+        FileCategory.TEXT: "Documents",
+        FileCategory.APPLICATION: "Other",
+        FileCategory.ARCHIVE: "Other",
+        FileCategory.OTHER: "Other",
     }[category]

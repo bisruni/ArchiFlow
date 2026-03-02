@@ -29,6 +29,7 @@ class ReportExporter:
             writer = csv.writer(stream)
             writer.writerow(["Metric", "Value"])
             writer.writerow(["GeneratedAtUtc", report.generated_at_utc.isoformat()])
+            writer.writerow(["TransactionId", report.transaction_id or ""])
             writer.writerow(["SourcePath", str(report.source_path)])
             writer.writerow(["TargetPath", str(report.target_path)])
             writer.writerow(["TotalFiles", report.summary.total_files_scanned])
@@ -36,6 +37,7 @@ class ReportExporter:
             writer.writerow(["DuplicateGroups", report.summary.duplicate_group_count])
             writer.writerow(["DuplicateFiles", report.summary.duplicate_files_found])
             writer.writerow(["SimilarImageGroups", len(report.similar_image_groups)])
+            writer.writerow(["SkippedFiles", len(report.summary.skipped_files)])
             writer.writerow(["ReclaimableBytes", report.summary.duplicate_bytes_reclaimable])
             writer.writerow(["FilesCopied", report.summary.files_copied])
             writer.writerow(["FilesMoved", report.summary.files_moved])
@@ -49,10 +51,23 @@ class ReportExporter:
                 for item in group.files:
                     writer.writerow([group.sha256_hash, group.size_bytes, str(item.full_path)])
 
+            if report.summary.skipped_files:
+                writer.writerow([])
+                writer.writerow(["SkippedFilePath"])
+                for item in report.summary.skipped_files:
+                    writer.writerow([item])
+
+            if report.summary.errors:
+                writer.writerow([])
+                writer.writerow(["Error"])
+                for item in report.summary.errors:
+                    writer.writerow([item])
+
     def _build_pdf_text(self, report: OperationReportData) -> str:
         lines: list[str] = [
             "ArchiFlow Report",
             f"Generated: {report.generated_at_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            f"Transaction ID: {report.transaction_id or '-'}",
             f"Source: {report.source_path}",
             f"Target: {report.target_path}",
             f"Total Files: {report.summary.total_files_scanned}",
@@ -60,6 +75,7 @@ class ReportExporter:
             f"Duplicate Groups: {report.summary.duplicate_group_count}",
             f"Duplicate Files: {report.summary.duplicate_files_found}",
             f"Similar Image Groups: {len(report.similar_image_groups)}",
+            f"Skipped Files: {len(report.summary.skipped_files)}",
             f"Reclaimable: {format_size(report.summary.duplicate_bytes_reclaimable)}",
             f"Copied: {report.summary.files_copied}",
             f"Moved: {report.summary.files_moved}",

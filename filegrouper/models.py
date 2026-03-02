@@ -60,6 +60,12 @@ class TransactionAction(str, Enum):
     DELETED_DUPLICATE = "deleted_duplicate"
 
 
+class TransactionStatus(str, Enum):
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"
+
+
 @dataclass(slots=True)
 class FileRecord:
     full_path: Path
@@ -182,6 +188,7 @@ class OperationSummary:
     duplicates_quarantined: int = 0
     duplicates_deleted: int = 0
     errors: list[str] = field(default_factory=list)
+    skipped_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -195,6 +202,7 @@ class OperationSummary:
             "duplicates_quarantined": self.duplicates_quarantined,
             "duplicates_deleted": self.duplicates_deleted,
             "errors": list(self.errors),
+            "skipped_files": list(self.skipped_files),
         }
 
 
@@ -261,6 +269,7 @@ class TransactionEntry:
     source_path: Path
     destination_path: Path | None
     timestamp_utc: datetime
+    status: TransactionStatus = TransactionStatus.PENDING
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -268,6 +277,7 @@ class TransactionEntry:
             "source_path": str(self.source_path),
             "destination_path": str(self.destination_path) if self.destination_path else None,
             "timestamp_utc": self.timestamp_utc.isoformat(),
+            "status": self.status.value,
         }
 
     @staticmethod
@@ -278,6 +288,7 @@ class TransactionEntry:
             source_path=Path(payload["source_path"]),
             destination_path=Path(destination) if destination else None,
             timestamp_utc=datetime.fromisoformat(payload["timestamp_utc"]),
+            status=TransactionStatus(payload.get("status", TransactionStatus.DONE.value)),
         )
 
 
@@ -317,6 +328,7 @@ class OperationReportData:
     summary: OperationSummary
     duplicate_groups: list[DuplicateGroup]
     similar_image_groups: list[SimilarImageGroup]
+    transaction_id: str | None
     transaction_file_path: Path | None
 
     def to_dict(self) -> dict[str, Any]:
@@ -327,5 +339,6 @@ class OperationReportData:
             "summary": self.summary.to_dict(),
             "duplicate_groups": [group.to_dict() for group in self.duplicate_groups],
             "similar_image_groups": [group.to_dict() for group in self.similar_image_groups],
+            "transaction_id": self.transaction_id,
             "transaction_file_path": str(self.transaction_file_path) if self.transaction_file_path else None,
         }

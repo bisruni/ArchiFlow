@@ -55,7 +55,10 @@ class RunResult:
     summary: OperationSummary
     duplicate_groups: list[DuplicateGroup]
     similar_image_groups: list[SimilarImageGroup]
+    transaction_id: str | None
     transaction_file_path: Path | None
+    auto_report_json_path: Path | None
+    auto_report_csv_path: Path | None
 
 
 class FileGrouperEngine:
@@ -101,11 +104,15 @@ class FileGrouperEngine:
         source = ensure_abs(options.source_path)
         target = ensure_abs(options.target_path) if options.target_path else source
 
+        scanner_errors: list[str] = []
+        scanner_skipped: list[str] = []
         files = self.scanner.scan(
             source,
             filter_options=options.filter_options,
             log=log,
             progress=progress,
+            errors=scanner_errors,
+            skipped_files=scanner_skipped,
             cancel_event=cancel_event,
             pause_controller=pause_controller,
         )
@@ -128,6 +135,8 @@ class FileGrouperEngine:
                 log("Not: Benzer gorseller sadece raporlanir; silme/karantina sadece kesin kopyalara uygulanir.")
 
         summary = self._build_summary(files, duplicate_groups)
+        summary.errors.extend(scanner_errors)
+        summary.skipped_files.extend(scanner_skipped)
 
         transaction: OperationTransaction | None = None
         transaction_path: Path | None = None
@@ -140,6 +149,9 @@ class FileGrouperEngine:
                 target_root=target,
                 entries=[],
             )
+            if not options.dry_run:
+                # Create transaction journal before any filesystem mutation.
+                transaction_path = self.transaction_service.save_transaction(transaction)
 
             to_skip: list[FileRecord] = []
             if options.execution_scope.includes_dedupe:
@@ -148,9 +160,12 @@ class FileGrouperEngine:
                     dedupe_mode=options.dedupe_mode,
                     protected_paths=options.duplicate_protected_paths,
                     source_root=source,
+                    target_root=target,
                     dry_run=options.dry_run,
                     summary=summary,
                     transaction=transaction,
+                    transaction_service=self.transaction_service,
+                    transaction_file_path=transaction_path,
                     log=log,
                     progress=progress,
                     cancel_event=cancel_event,
@@ -159,22 +174,39 @@ class FileGrouperEngine:
 
             if options.execution_scope.includes_grouping:
                 skip_set = {str(item.full_path).lower() for item in to_skip}
-                remaining = [item for item in files if str(item.full_path).lower() not in skip_set]
+                remaining_total = len(files) - len(to_skip)
+                remaining = (item for item in files if str(item.full_path).lower() not in skip_set)
                 self.organizer.organize_by_category_and_date(
                     remaining,
+                    total_files=max(0, remaining_total),
                     target_root=target,
                     mode=options.organization_mode,
                     dry_run=options.dry_run,
                     summary=summary,
                     transaction=transaction,
+                    transaction_service=self.transaction_service,
+                    transaction_file_path=transaction_path,
                     log=log,
                     progress=progress,
                     cancel_event=cancel_event,
                     pause_controller=pause_controller,
                 )
 
-            if not options.dry_run and transaction.entries:
-                transaction_path = self.transaction_service.save_transaction(transaction)
+            if not options.dry_run and transaction_path is not None:
+                self.transaction_service.save_transaction_to_path(transaction, transaction_path)
+
+        result = RunResult(
+            source_path=source,
+            target_path=target,
+            summary=summary,
+            duplicate_groups=duplicate_groups,
+            similar_image_groups=similar_groups,
+            transaction_id=transaction.transaction_id if transaction else None,
+            transaction_file_path=transaction_path,
+            auto_report_json_path=None,
+            auto_report_csv_path=None,
+        )
+        self._auto_export_reports(result, log=log)
 
         if progress:
             progress(
@@ -186,14 +218,7 @@ class FileGrouperEngine:
                 )
             )
 
-        return RunResult(
-            source_path=source,
-            target_path=target,
-            summary=summary,
-            duplicate_groups=duplicate_groups,
-            similar_image_groups=similar_groups,
-            transaction_file_path=transaction_path,
-        )
+        return result
 
     def build_report(self, result: RunResult) -> OperationReportData:
         return OperationReportData(
@@ -203,6 +228,7 @@ class FileGrouperEngine:
             summary=result.summary,
             duplicate_groups=result.duplicate_groups,
             similar_image_groups=result.similar_image_groups,
+            transaction_id=result.transaction_id,
             transaction_file_path=result.transaction_file_path,
         )
 
@@ -217,3 +243,17 @@ class FileGrouperEngine:
             duplicate_files_found=duplicate_files,
             duplicate_bytes_reclaimable=duplicate_bytes,
         )
+
+    def _auto_export_reports(self, result: RunResult, *, log: LogFn | None) -> None:
+        try:
+            report_dir = result.target_path / ".filegrouper" / "reports"
+            report = self.build_report(result)
+            json_path, csv_path, _pdf_path = self.report_exporter.export(report, report_dir)
+            result.auto_report_json_path = json_path
+            result.auto_report_csv_path = csv_path
+            if log:
+                log(f"Rapor yazildi: {json_path.name}, {csv_path.name}")
+        except Exception as exc:  # noqa: BLE001
+            result.summary.errors.append(f"Report export failed: {exc}")
+            if log:
+                log(f"Report export failed: {exc}")

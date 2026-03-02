@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import traceback
 from dataclasses import dataclass
@@ -68,6 +70,7 @@ TR = {
     "dedupe": "Kopya modu",
     "dry_run": "Test modu (önerilir)",
     "similar": "Benzer görselleri analiz et (silinmez)",
+    "similar_unavailable": "Benzer goruntu analizi icin Pillow gerekli.",
     "filters": "Filtreler…",
     "preview": "Önizleme",
     "apply": "Uygula",
@@ -87,6 +90,18 @@ TR = {
     "need_source": "Kaynak klasör seçmeden başlayamazsın.",
     "need_target_undo": "Geri alma için hedef klasör gerekli.",
     "need_preview": "Önce bir önizleme/uygulama çalıştır.",
+    "preview_summary": "Önizleme Özeti",
+    "sum_total": "Toplam dosya",
+    "sum_dupes": "Kopya bulundu",
+    "sum_reclaim": "Kazanılabilir alan",
+    "sum_quarantine": "Karantinaya gidecek",
+    "sum_organize": "Gruplanacak dosya",
+    "confirm_apply_title": "Uygulama Onayı",
+    "confirm_apply_text": "İşlem uygulanacak. Devam etmek istiyor musun?",
+    "open_quarantine": "Karantina Klasörünü Aç",
+    "quarantine_missing": "Karantina klasörü henüz oluşmadı.",
+    "open_file_location_failed": "Dosya konumu açılamadı.",
+    "dupe_detail": "Grup Detayı",
 }
 
 SCOPE_ITEMS = [
@@ -307,6 +322,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.engine = FileGrouperEngine()
+        self.similar_supported = self.engine.detector.is_similar_supported()
 
         self.setWindowTitle(TR["title"])
         self.setMinimumSize(1100, 720)
@@ -321,6 +337,11 @@ class MainWindow(QMainWindow):
         self.last_result: RunResult | None = None
         self.preview_duplicate_groups: list[DuplicateGroup] = []
         self.protected_duplicate_paths: set[str] = set()
+        self.last_run_scope: ExecutionScope = ExecutionScope.GROUP_AND_DEDUPE
+        self.last_run_dedupe_mode: DedupeMode = DedupeMode.QUARANTINE
+        self.last_run_apply_changes: bool = False
+        self.preview_quarantine_estimate = 0
+        self.preview_organize_estimate = 0
 
         self._build_ui()
         self._set_running(False)
@@ -352,6 +373,10 @@ class MainWindow(QMainWindow):
         self.dry_check = QCheckBox(TR["dry_run"])
         self.dry_check.setChecked(True)
         self.similar_check = QCheckBox(TR["similar"])
+        if not self.similar_supported:
+            self.similar_check.setChecked(False)
+            self.similar_check.setEnabled(False)
+            self.similar_check.setToolTip(TR["similar_unavailable"])
         title_row.addWidget(self.dry_check)
         title_row.addWidget(self.similar_check)
 
@@ -498,20 +523,56 @@ class MainWindow(QMainWindow):
         metrics.addWidget(metric("Benzer", self.m_similar))
         root.addLayout(metrics)
 
+        # Preview summary (trust layer)
+        preview_box = QGroupBox(TR["preview_summary"])
+        preview_layout = QGridLayout()
+        preview_layout.setHorizontalSpacing(14)
+        preview_layout.setVerticalSpacing(6)
+        preview_box.setLayout(preview_layout)
+        self.p_total = QLabel("0")
+        self.p_dupes = QLabel("0")
+        self.p_reclaim = QLabel("0 B")
+        self.p_quarantine = QLabel("0")
+        self.p_organize = QLabel("0")
+        preview_layout.addWidget(QLabel(TR["sum_total"]), 0, 0)
+        preview_layout.addWidget(self.p_total, 0, 1)
+        preview_layout.addWidget(QLabel(TR["sum_dupes"]), 0, 2)
+        preview_layout.addWidget(self.p_dupes, 0, 3)
+        preview_layout.addWidget(QLabel(TR["sum_reclaim"]), 0, 4)
+        preview_layout.addWidget(self.p_reclaim, 0, 5)
+        preview_layout.addWidget(QLabel(TR["sum_quarantine"]), 1, 0)
+        preview_layout.addWidget(self.p_quarantine, 1, 1)
+        preview_layout.addWidget(QLabel(TR["sum_organize"]), 1, 2)
+        preview_layout.addWidget(self.p_organize, 1, 3)
+        root.addWidget(preview_box)
+
         # Tabs
         self.tabs = QTabWidget()
         root.addWidget(self.tabs, 1)
 
         # Duplicates table
+        dupes_wrap = QWidget()
+        dupes_layout = QVBoxLayout()
+        dupes_layout.setContentsMargins(0, 0, 0, 0)
+        dupes_wrap.setLayout(dupes_layout)
+
+        dupes_toolbar = QHBoxLayout()
+        self.dupe_detail_btn = QPushButton(TR["dupe_detail"])
+        self.dupe_detail_btn.clicked.connect(self._open_selected_duplicate_group_dialog)
+        dupes_toolbar.addWidget(self.dupe_detail_btn)
+        dupes_toolbar.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        dupes_layout.addLayout(dupes_toolbar)
+
         self.dupes_table = QTableWidget(0, 4)
-        self.dupes_table.setHorizontalHeaderLabels(["Hash", "Silinecek", "Boyut", "Kalacak (ilk dosya)"])
+        self.dupes_table.setHorizontalHeaderLabels(["Hash", "Kaldır", "Boyut", "Koru/Kalacak"])
         self.dupes_table.horizontalHeader().setStretchLastSection(True)
         self.dupes_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.dupes_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.dupes_table.setAlternatingRowColors(True)
-        self.dupes_table.setToolTip("Detay ve secim icin satira cift tiklayin.")
-        self.dupes_table.cellDoubleClicked.connect(self._open_duplicate_group_dialog)
-        self.tabs.addTab(self.dupes_table, TR["tab_dupes"])
+        self.dupes_table.setToolTip("Cift tiklayinca dosya konumu acilir.")
+        self.dupes_table.cellDoubleClicked.connect(self._open_duplicate_location_from_table)
+        dupes_layout.addWidget(self.dupes_table)
+        self.tabs.addTab(dupes_wrap, TR["tab_dupes"])
 
         # Logs
         logs_wrap = QWidget()
@@ -520,13 +581,16 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
         self.clear_logs_btn = QPushButton("Log temizle")
+        self.open_quarantine_btn = QPushButton(TR["open_quarantine"])
         self.undo_btn = QPushButton(TR["undo"])
         self.export_btn = QPushButton(TR["export"])
         self.clear_logs_btn.clicked.connect(self._clear_logs)
+        self.open_quarantine_btn.clicked.connect(self._open_quarantine_folder)
         self.undo_btn.clicked.connect(self._undo_last)
         self.export_btn.clicked.connect(self._export_report)
 
         toolbar.addWidget(self.clear_logs_btn)
+        toolbar.addWidget(self.open_quarantine_btn)
         toolbar.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
         toolbar.addWidget(self.undo_btn)
         toolbar.addWidget(self.export_btn)
@@ -568,6 +632,19 @@ class MainWindow(QMainWindow):
             self.filters_draft = dlg.result
             self._log("Filtreler güncellendi.")
 
+    def _open_quarantine_folder(self):
+        source_text = self.source_edit.text().strip()
+        target_text = self.target_edit.text().strip()
+        base = Path(target_text) if target_text else (Path(source_text) if source_text else None)
+        if base is None:
+            QMessageBox.information(self, TR["open_quarantine"], TR["quarantine_missing"])
+            return
+        folder = base / ".filegrouper_quarantine"
+        if not folder.exists():
+            QMessageBox.information(self, TR["open_quarantine"], TR["quarantine_missing"])
+            return
+        self._open_path_in_file_manager(folder)
+
     def _toggle_pause(self):
         if not self._is_running():
             return
@@ -586,6 +663,12 @@ class MainWindow(QMainWindow):
             return
         if self.cancel_event is not None:
             self.cancel_event.set()
+
+    def _open_selected_duplicate_group_dialog(self):
+        row = self.dupes_table.currentRow()
+        if row < 0:
+            return
+        self._open_duplicate_group_dialog(row, 0)
 
     @Slot(int)
     def _on_workflow_changed(self, index: int):
@@ -610,7 +693,7 @@ class MainWindow(QMainWindow):
             self.target_edit.setPlaceholderText(TR["target_not_needed"])
 
         if includes_dedupe:
-            self.similar_check.setEnabled(not self._is_running())
+            self.similar_check.setEnabled(self.similar_supported and not self._is_running())
         else:
             self.similar_check.setChecked(False)
             self.similar_check.setEnabled(False)
@@ -663,6 +746,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, TR["err"], error)
             return
 
+        if apply_changes and not self._confirm_apply(scope):
+            return
+
         # “Sil” seçildiyse ekstra uyarı (satılacak ürün: kazaya izin yok)
         if self._dedupe_enum() == DedupeMode.DELETE and apply_changes and not self.dry_check.isChecked():
             ok = QMessageBox.question(
@@ -681,9 +767,12 @@ class MainWindow(QMainWindow):
         if not apply_changes:
             self.preview_duplicate_groups = []
             self.protected_duplicate_paths = set()
+            self.preview_quarantine_estimate = 0
+            self.preview_organize_estimate = 0
         self.progress.setValue(0)
         self.progress_lbl.setText("0%")
         self._set_status(TR["running"])
+        self._set_preview_summary(None)
 
         # thread init
         import threading as _th
@@ -704,6 +793,9 @@ class MainWindow(QMainWindow):
             filter_options=self._build_filter_options(),
             duplicate_protected_paths=set(self.protected_duplicate_paths),
         )
+        self.last_run_scope = scope
+        self.last_run_dedupe_mode = self._dedupe_enum()
+        self.last_run_apply_changes = apply_changes
 
         self.thread = QThread()
         self.worker = Worker(self.engine, options, self.cancel_event, self.pause_controller)
@@ -754,6 +846,18 @@ class MainWindow(QMainWindow):
         }
 
         self._set_metrics_from_summary(s, similar_count=len(result.similar_image_groups))
+        quarantine_est = s.duplicates_quarantined
+        organize_est = s.files_copied + s.files_moved
+        if not self.last_run_apply_changes:
+            if self.last_run_scope.includes_dedupe and self.last_run_dedupe_mode is not DedupeMode.OFF:
+                quarantine_est = s.duplicate_files_found
+            if self.last_run_scope.includes_grouping:
+                organize_est = max(0, s.total_files_scanned - quarantine_est)
+            else:
+                organize_est = 0
+        self.preview_quarantine_estimate = quarantine_est
+        self.preview_organize_estimate = organize_est
+        self._set_preview_summary(s, quarantine_est, organize_est)
 
         # fill dupes table (cap for performance)
         visible_limit = 600
@@ -838,6 +942,8 @@ class MainWindow(QMainWindow):
         self.mode_combo.setEnabled(not running)
         self.dedupe_combo.setEnabled(not running)
         self.dry_check.setEnabled(not running)
+        self.dupe_detail_btn.setEnabled(not running)
+        self.open_quarantine_btn.setEnabled(not running)
 
         if not running:
             self.paused = False
@@ -858,6 +964,20 @@ class MainWindow(QMainWindow):
 
     def _clear_dupes_table(self):
         self.dupes_table.setRowCount(0)
+
+    def _open_duplicate_location_from_table(self, row: int, _column: int):
+        first = self.dupes_table.item(row, 0)
+        if first is None:
+            return
+        group_index = first.data(Qt.UserRole)
+        if not isinstance(group_index, int):
+            return
+        if group_index < 0 or group_index >= len(self.preview_duplicate_groups):
+            return
+        group = self.preview_duplicate_groups[group_index]
+        if not group.files:
+            return
+        self._open_path_in_file_manager(group.files[0].full_path)
 
     def _open_duplicate_group_dialog(self, row: int, _column: int):
         first = self.dupes_table.item(row, 0)
@@ -917,6 +1037,59 @@ class MainWindow(QMainWindow):
         self.m_reclaim.setText(format_size(summary.duplicate_bytes_reclaimable))
         self.m_errors.setText(str(len(summary.errors)))
         self.m_similar.setText(str(similar_count))
+
+    def _set_preview_summary(self, summary, quarantine_count: int = 0, organize_count: int = 0):
+        if summary is None:
+            self.p_total.setText("0")
+            self.p_dupes.setText("0")
+            self.p_reclaim.setText("0 B")
+            self.p_quarantine.setText("0")
+            self.p_organize.setText("0")
+            return
+        self.p_total.setText(str(summary.total_files_scanned))
+        self.p_dupes.setText(str(summary.duplicate_files_found))
+        self.p_reclaim.setText(format_size(summary.duplicate_bytes_reclaimable))
+        self.p_quarantine.setText(str(quarantine_count))
+        self.p_organize.setText(str(organize_count))
+
+    def _confirm_apply(self, scope: ExecutionScope) -> bool:
+        lines = [TR["confirm_apply_text"], ""]
+        lines.append(f"- Is akis: {scope.value}")
+        lines.append(f"- Test modu: {'Acik' if self.dry_check.isChecked() else 'Kapali'}")
+        lines.append(f"- Kopya modu: {self.dedupe_combo.currentText()}")
+        lines.append(f"- Gruplama modu: {self.mode_combo.currentText()}")
+        if self.last_result is not None:
+            s = self.last_result.summary
+            lines.append("")
+            lines.append("Son onizleme ozeti:")
+            lines.append(f"- Toplam dosya: {s.total_files_scanned}")
+            lines.append(f"- Kopya: {s.duplicate_files_found}")
+            lines.append(f"- Kazanim: {format_size(s.duplicate_bytes_reclaimable)}")
+            lines.append(f"- Karantina: {self.preview_quarantine_estimate}")
+            lines.append(f"- Gruplanacak: {self.preview_organize_estimate}")
+        else:
+            lines.append("")
+            lines.append("Onizleme sonucu bulunamadi.")
+
+        ok = QMessageBox.question(
+            self,
+            TR["confirm_apply_title"],
+            "\n".join(lines),
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        return ok == QMessageBox.Yes
+
+    def _open_path_in_file_manager(self, path: Path):
+        try:
+            if sys.platform == "darwin":
+                subprocess.run(["open", "-R", str(path)], check=False)
+            elif os.name == "nt":
+                subprocess.run(["explorer", f"/select,{path}"], check=False)
+            else:
+                target = path if path.is_dir() else path.parent
+                subprocess.run(["xdg-open", str(target)], check=False)
+        except Exception:
+            QMessageBox.warning(self, TR["err"], TR["open_file_location_failed"])
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self._is_running():
