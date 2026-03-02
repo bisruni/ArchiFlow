@@ -1,6 +1,6 @@
-# FileGrouper (Python)
+# ArchiFlow (Python)
 
-FileGrouper, harici disk veya klasorleri tarayip dosyalari tur + tarihe gore duzenleyen,
+ArchiFlow, harici disk veya klasorleri tarayip dosyalari tur + tarihe gore duzenleyen,
 kopya dosyalari bulup temizleyebilen bir Python uygulamasidir.
 
 - GUI: PySide6 masaustu arayuzu
@@ -89,7 +89,7 @@ python3 main.py apply \
 
 1. Kaynak klasoru sec
 2. Hedef klasoru sec (gruplama varsa zorunlu)
-3. `Calisma Kapsami` sec
+3. Ustteki sekmeden is akisini sec: `Hepsi` / `Kopya Analizi` / `Gruplandirma`
 4. `Onizleme` ile kontrol et
 5. `Kopyalar` sekmesinde bir satira cift tiklayip hangi dosyalarin korunacagini sec
 6. `Test modu`nu kapatip `Secili Islemi Uygula`

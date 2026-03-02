@@ -14,7 +14,7 @@ from .utils import format_size
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="filegrouper", description="File grouping and duplicate cleanup")
+    parser = argparse.ArgumentParser(prog="archiflow", description="File grouping and duplicate cleanup")
     sub = parser.add_subparsers(dest="command")
 
     scan = sub.add_parser("scan", help="Scan source and print summary")

@@ -87,7 +87,10 @@ def default_profile_path() -> Path:
     else:
         root = Path(os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config")))
 
-    return root / "FileGrouper" / "profiles.json"
+    legacy = root / "FileGrouper" / "profiles.json"
+    if legacy.exists():
+        return legacy
+    return root / "ArchiFlow" / "profiles.json"
 
 
 def sys_platform_is_macos() -> bool:

@@ -50,12 +50,20 @@ from .utils import format_size
 # ----------------------------
 
 TR = {
-    "title": "FileGrouper",
+    "title": "ArchiFlow",
     "subtitle": "Disk düzenleme ve kopya temizleme merkezi",
     "source": "Kaynak klasör",
     "target": "Hedef klasör (organize/karantina)",
     "browse": "Gözat…",
     "scope": "Kapsam",
+    "workflow": "İş akışı",
+    "flow_all": "Hepsi",
+    "flow_all_desc": "Gruplandırma ve kopya temizleme birlikte çalışır.",
+    "flow_dedupe": "Kopya Analizi",
+    "flow_dedupe_desc": "Sadece kopya analiz/temizleme çalışır.",
+    "flow_group": "Gruplandırma",
+    "flow_group_desc": "Sadece klasörleme ve düzenleme çalışır.",
+    "target_not_needed": "Bu akışta hedef klasör gerekmez.",
     "mode": "Taşıma modu",
     "dedupe": "Kopya modu",
     "dry_run": "Test modu (önerilir)",
@@ -94,6 +102,11 @@ DEDUPE_ITEMS = [
     ("Karantina", DedupeMode.QUARANTINE),
     ("Kapalı", DedupeMode.OFF),
     ("Sil (tehlikeli)", DedupeMode.DELETE),
+]
+WORKFLOW_ITEMS = [
+    (TR["flow_all"], ExecutionScope.GROUP_AND_DEDUPE, TR["flow_all_desc"]),
+    (TR["flow_dedupe"], ExecutionScope.DEDUPE_ONLY, TR["flow_dedupe_desc"]),
+    (TR["flow_group"], ExecutionScope.GROUP_ONLY, TR["flow_group_desc"]),
 ]
 
 
@@ -344,6 +357,27 @@ class MainWindow(QMainWindow):
 
         root.addLayout(title_row)
 
+        workflow_card = QGroupBox(TR["workflow"])
+        workflow_layout = QVBoxLayout()
+        workflow_layout.setContentsMargins(10, 8, 10, 8)
+        workflow_layout.setSpacing(6)
+        workflow_card.setLayout(workflow_layout)
+
+        self.workflow_tabs = QTabWidget()
+        for title, _scope, desc in WORKFLOW_ITEMS:
+            page = QWidget()
+            page_layout = QVBoxLayout()
+            page_layout.setContentsMargins(10, 8, 10, 8)
+            hint = QLabel(desc)
+            hint.setStyleSheet("color: #6b7280;")
+            page_layout.addWidget(hint)
+            page_layout.addStretch(1)
+            page.setLayout(page_layout)
+            self.workflow_tabs.addTab(page, title)
+        self.workflow_tabs.currentChanged.connect(self._on_workflow_changed)
+        workflow_layout.addWidget(self.workflow_tabs)
+        root.addWidget(workflow_card)
+
         # Card: inputs + options
         card = QGroupBox()
         card.setTitle("")
@@ -360,19 +394,19 @@ class MainWindow(QMainWindow):
         src_btn.clicked.connect(self._browse_source)
         tgt_btn.clicked.connect(self._browse_target)
 
-        card_layout.addWidget(QLabel(TR["source"]), 0, 0)
+        self.source_lbl = QLabel(TR["source"])
+        card_layout.addWidget(self.source_lbl, 0, 0)
         card_layout.addWidget(self.source_edit, 0, 1)
         card_layout.addWidget(src_btn, 0, 2)
 
-        card_layout.addWidget(QLabel(TR["target"]), 1, 0)
+        self.target_lbl = QLabel(TR["target"])
+        self.target_btn = tgt_btn
+        card_layout.addWidget(self.target_lbl, 1, 0)
         card_layout.addWidget(self.target_edit, 1, 1)
         card_layout.addWidget(tgt_btn, 1, 2)
 
         # Options column
         opt_box = QVBoxLayout()
-        self.scope_combo = QComboBox()
-        for label, _ in SCOPE_ITEMS:
-            self.scope_combo.addItem(label)
         self.mode_combo = QComboBox()
         for label, _ in MODE_ITEMS:
             self.mode_combo.addItem(label)
@@ -381,12 +415,12 @@ class MainWindow(QMainWindow):
             self.dedupe_combo.addItem(label)
 
         opt_grid = QGridLayout()
-        opt_grid.addWidget(QLabel(TR["scope"]), 0, 0)
-        opt_grid.addWidget(self.scope_combo, 0, 1)
-        opt_grid.addWidget(QLabel(TR["mode"]), 1, 0)
-        opt_grid.addWidget(self.mode_combo, 1, 1)
-        opt_grid.addWidget(QLabel(TR["dedupe"]), 2, 0)
-        opt_grid.addWidget(self.dedupe_combo, 2, 1)
+        self.mode_lbl = QLabel(TR["mode"])
+        self.dedupe_lbl = QLabel(TR["dedupe"])
+        opt_grid.addWidget(self.mode_lbl, 0, 0)
+        opt_grid.addWidget(self.mode_combo, 0, 1)
+        opt_grid.addWidget(self.dedupe_lbl, 1, 0)
+        opt_grid.addWidget(self.dedupe_combo, 1, 1)
 
         opt_box.addLayout(opt_grid)
 
@@ -511,6 +545,8 @@ class MainWindow(QMainWindow):
         act_quit.triggered.connect(self.close)
         m.addAction(act_quit)
 
+        self._on_workflow_changed(self.workflow_tabs.currentIndex())
+
     # ---- actions ----
 
     def _browse_source(self):
@@ -550,6 +586,34 @@ class MainWindow(QMainWindow):
             return
         if self.cancel_event is not None:
             self.cancel_event.set()
+
+    @Slot(int)
+    def _on_workflow_changed(self, index: int):
+        if index < 0 or index >= len(WORKFLOW_ITEMS):
+            return
+        scope = WORKFLOW_ITEMS[index][1]
+        includes_grouping = scope.includes_grouping
+        includes_dedupe = scope.includes_dedupe
+
+        self.mode_lbl.setEnabled(includes_grouping)
+        self.mode_combo.setEnabled(includes_grouping and not self._is_running())
+
+        self.dedupe_lbl.setEnabled(includes_dedupe)
+        self.dedupe_combo.setEnabled(includes_dedupe and not self._is_running())
+
+        self.target_lbl.setEnabled(includes_grouping)
+        self.target_edit.setEnabled(includes_grouping and not self._is_running())
+        self.target_btn.setEnabled(includes_grouping and not self._is_running())
+        if includes_grouping:
+            self.target_edit.setPlaceholderText("")
+        else:
+            self.target_edit.setPlaceholderText(TR["target_not_needed"])
+
+        if includes_dedupe:
+            self.similar_check.setEnabled(not self._is_running())
+        else:
+            self.similar_check.setChecked(False)
+            self.similar_check.setEnabled(False)
 
     def _undo_last(self):
         target_text = self.target_edit.text().strip()
@@ -717,7 +781,10 @@ class MainWindow(QMainWindow):
     # ---- helpers ----
 
     def _scope_enum(self) -> ExecutionScope:
-        return dict(SCOPE_ITEMS)[self.scope_combo.currentText()]
+        index = self.workflow_tabs.currentIndex()
+        if index < 0 or index >= len(WORKFLOW_ITEMS):
+            return ExecutionScope.GROUP_AND_DEDUPE
+        return WORKFLOW_ITEMS[index][1]
 
     def _mode_enum(self) -> OrganizationMode:
         return dict(MODE_ITEMS)[self.mode_combo.currentText()]
@@ -767,15 +834,15 @@ class MainWindow(QMainWindow):
         self.filters_btn.setEnabled(not running)
         self.pause_btn.setEnabled(running)
         self.cancel_btn.setEnabled(running)
-        self.scope_combo.setEnabled(not running)
+        self.workflow_tabs.setEnabled(not running)
         self.mode_combo.setEnabled(not running)
         self.dedupe_combo.setEnabled(not running)
         self.dry_check.setEnabled(not running)
-        self.similar_check.setEnabled(not running)
 
         if not running:
             self.paused = False
             self.pause_btn.setText(TR["pause"])
+        self._on_workflow_changed(self.workflow_tabs.currentIndex())
 
     def _is_running(self) -> bool:
         return self.thread is not None and self.thread.isRunning()

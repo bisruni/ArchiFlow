@@ -51,7 +51,7 @@ class ReportExporter:
 
     def _build_pdf_text(self, report: OperationReportData) -> str:
         lines: list[str] = [
-            "FileGrouper Report",
+            "ArchiFlow Report",
             f"Generated: {report.generated_at_utc.strftime('%Y-%m-%d %H:%M:%S')} UTC",
             f"Source: {report.source_path}",
             f"Target: {report.target_path}",
