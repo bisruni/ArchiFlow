@@ -6,10 +6,10 @@ import sys
 import threading
 from pathlib import Path
 
+from .errors import OperationCancelledError
 from .models import DedupeMode, ExecutionScope, OrganizationMode, ScanFilterOptions
 from .pause_controller import PauseController
 from .pipeline import FileGrouperEngine, RunOptions
-from .scanner import OperationCancelledError
 from .utils import format_size
 
 
@@ -46,7 +46,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command in {None, "gui"}:
-        from .gui import launch_gui
+        try:
+            from .gui import launch_gui
+        except ModuleNotFoundError as exc:
+            if exc.name and exc.name.startswith("PySide6"):
+                print(
+                    "GUI icin PySide6 gerekli. Once bir sanal ortam acip bagimliliklari kurun:\n"
+                    "  python3 -m venv .venv\n"
+                    "  source .venv/bin/activate\n"
+                    "  python3 -m pip install -r requirements.txt",
+                    file=sys.stderr,
+                )
+                return 1
+            raise
 
         launch_gui()
         return 0

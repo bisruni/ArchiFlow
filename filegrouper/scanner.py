@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from .classifier import classify
+from .errors import OperationCancelledError
 from .models import FileRecord, OperationProgress, OperationStage, ScanFilterOptions
 
 LogFn = Callable[[str], None]
@@ -97,7 +98,3 @@ class FileScanner:
                 if name in {"duplicates_quarantine", ".filegrouper"}:
                     continue
                 pending.append(dir_path)
-
-
-class OperationCancelledError(RuntimeError):
-    pass

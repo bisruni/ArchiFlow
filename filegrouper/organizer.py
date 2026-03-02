@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from .classifier import folder_name
+from .errors import OperationCancelledError
 from .models import (
     DedupeMode,
     DuplicateGroup,
@@ -30,6 +31,7 @@ class FileOrganizer:
         duplicate_groups: list[DuplicateGroup],
         *,
         dedupe_mode: DedupeMode,
+        protected_paths: set[str] | None,
         source_root: Path,
         dry_run: bool,
         summary: OperationSummary,
@@ -42,9 +44,23 @@ class FileOrganizer:
         if dedupe_mode is DedupeMode.OFF:
             return []
 
+        protected_lookup = {item.lower() for item in (protected_paths or set())}
         unique_remove: dict[str, FileRecord] = {}
         for group in duplicate_groups:
-            for item in group.files[1:]:
+            if len(group.files) < 2:
+                continue
+
+            keep_lookup = {
+                str(item.full_path).lower()
+                for item in group.files
+                if str(item.full_path).lower() in protected_lookup
+            }
+            if not keep_lookup:
+                keep_lookup = {str(group.files[0].full_path).lower()}
+
+            for item in group.files:
+                if str(item.full_path).lower() in keep_lookup:
+                    continue
                 unique_remove[str(item.full_path).lower()] = item
 
         to_remove = list(unique_remove.values())
@@ -182,10 +198,6 @@ class FileOrganizer:
                         message="Organizing files",
                     )
                 )
-
-
-class OperationCancelledError(RuntimeError):
-    pass
 
 
 def safe_relative_path(path: Path, root: Path) -> Path:

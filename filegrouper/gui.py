@@ -1,689 +1,593 @@
 from __future__ import annotations
 
-import queue
-import threading
+import sys
+import traceback
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 
-from .models import DedupeMode, ExecutionScope, OperationProgress, OrganizationMode, ScanFilterOptions
+from PySide6.QtCore import Qt, QObject, Signal, Slot, QThread
+from PySide6.QtGui import QAction, QCloseEvent, QFont
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QProgressBar,
+    QSizePolicy,
+    QSpacerItem,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+try:
+    import qdarktheme  # type: ignore
+except Exception:
+    qdarktheme = None
+
+from .errors import OperationCancelledError
+from .models import DedupeMode, DuplicateGroup, ExecutionScope, OperationProgress, OrganizationMode, ScanFilterOptions
 from .pause_controller import PauseController
 from .pipeline import FileGrouperEngine, RunOptions, RunResult
-from .scanner import OperationCancelledError
 from .utils import format_size
 
 
-PALETTE = {
-    "page": "#f6f7f9",
-    "card": "#ffffff",
-    "card_alt": "#fafbfc",
-    "border": "#e2e7ee",
-    "hero": "#ffffff",
-    "hero_text": "#111827",
-    "hero_sub": "#6b7280",
-    "text": "#1f2937",
-    "muted": "#6b7280",
-    "accent": "#2563eb",
-    "accent_dark": "#1d4ed8",
-    "positive": "#15803d",
-    "warning": "#a16207",
-    "danger": "#dc2626",
+# ----------------------------
+# i18n (TR only, clean)
+# ----------------------------
+
+TR = {
+    "title": "FileGrouper",
+    "subtitle": "Disk düzenleme ve kopya temizleme merkezi",
+    "source": "Kaynak klasör",
+    "target": "Hedef klasör (organize/karantina)",
+    "browse": "Gözat…",
+    "scope": "Kapsam",
+    "mode": "Taşıma modu",
+    "dedupe": "Kopya modu",
+    "dry_run": "Test modu (önerilir)",
+    "similar": "Benzer görselleri analiz et (silinmez)",
+    "filters": "Filtreler…",
+    "preview": "Önizleme",
+    "apply": "Uygula",
+    "pause": "Duraklat",
+    "resume": "Devam",
+    "cancel": "İptal",
+    "undo": "Geri al",
+    "export": "Rapor",
+    "tab_dupes": "Kopyalar",
+    "tab_logs": "Log",
+    "ready": "Hazır",
+    "running": "Çalışıyor…",
+    "paused": "Duraklatıldı",
+    "cancelled": "İptal edildi",
+    "done": "Tamamlandı",
+    "err": "Hata",
+    "need_source": "Kaynak klasör seçmeden başlayamazsın.",
+    "need_target_undo": "Geri alma için hedef klasör gerekli.",
+    "need_preview": "Önce bir önizleme/uygulama çalıştır.",
 }
 
-LANG_TEXTS = {
-    "Turkce": {
-        "title": "FileGrouper",
-        "subtitle": "Disk duzenleme ve kopya temizleme merkezi",
-        "source": "Kaynak Klasor",
-        "target": "Hedef Klasor",
-        "browse": "Gozat",
-        "scope": "Calisma Kapsami",
-        "mode": "Gruplama Modu",
-        "dedupe": "Kopya Modu",
-        "dry_run": "Test modu (onerilen)",
-        "similar": "Benzer gorselleri bul",
-        "preview": "Onizleme",
-        "apply": "Secili Islemi Uygula",
-        "pause": "Duraklat",
-        "resume": "Devam Et",
-        "cancel": "Iptal",
-        "undo": "Son Islemi Geri Al",
-        "export": "Rapor Disa Aktar",
-        "filters": "Filtreler",
-        "include_ext": "Sadece uzantilar",
-        "exclude_ext": "Haric uzantilar",
-        "min_mb": "Min MB",
-        "max_mb": "Max MB",
-        "from_date": "Baslangic (YYYY-AA-GG)",
-        "to_date": "Bitis (YYYY-AA-GG)",
-        "advanced_toggle": "Gelismis secenekleri goster",
-        "status_ready": "Hazir",
-        "status_running": "Calisiyor...",
-        "status_done": "Tamamlandi",
-        "status_cancelled": "Iptal edildi",
-        "status_paused": "Duraklatildi",
-        "status_resumed": "Devam ediyor",
-        "progress_title": "Ilerleme",
-        "tab_duplicates": "Kopya Gruplari",
-        "tab_logs": "Log Akisi",
-        "tab_quick": "Hizli Kullanim",
-        "quick": "1) Kaynak sec\n2) Kapsam sec\n3) Onizleme\n4) Test modunu kapatip uygula",
-        "summary_total": "Toplam Dosya",
-        "summary_size": "Toplam Boyut",
-        "summary_dupes": "Kopya Dosya",
-        "summary_reclaim": "Kazanilabilir",
-        "summary_err": "Hata",
-        "summary_similar": "Benzer Grup",
-        "dup_hash": "Hash",
-        "dup_remove": "Silinecek",
-        "dup_size": "Boyut",
-        "dup_keep": "Kalinacak Dosya",
-        "similar_list": "Benzer Goruntuler",
-        "clear_logs": "Log Temizle",
-        "language": "Dil",
-    },
-    "English": {
-        "title": "FileGrouper",
-        "subtitle": "Disk organization and duplicate cleanup center",
-        "source": "Source Folder",
-        "target": "Target Folder",
-        "browse": "Browse",
-        "scope": "Execution Scope",
-        "mode": "Grouping Mode",
-        "dedupe": "Duplicate Mode",
-        "dry_run": "Dry run (recommended)",
-        "similar": "Find similar images",
-        "preview": "Preview",
-        "apply": "Apply Selected Operation",
-        "pause": "Pause",
-        "resume": "Resume",
-        "cancel": "Cancel",
-        "undo": "Undo Last Operation",
-        "export": "Export Report",
-        "filters": "Filters",
-        "include_ext": "Include extensions",
-        "exclude_ext": "Exclude extensions",
-        "min_mb": "Min MB",
-        "max_mb": "Max MB",
-        "from_date": "From (YYYY-MM-DD)",
-        "to_date": "To (YYYY-MM-DD)",
-        "advanced_toggle": "Show advanced options",
-        "status_ready": "Ready",
-        "status_running": "Running...",
-        "status_done": "Completed",
-        "status_cancelled": "Cancelled",
-        "status_paused": "Paused",
-        "status_resumed": "Running",
-        "progress_title": "Progress",
-        "tab_duplicates": "Duplicate Groups",
-        "tab_logs": "Log Stream",
-        "tab_quick": "Quick Start",
-        "quick": "1) Select source\n2) Select scope\n3) Preview\n4) Turn off dry run and apply",
-        "summary_total": "Total Files",
-        "summary_size": "Total Size",
-        "summary_dupes": "Duplicate Files",
-        "summary_reclaim": "Reclaimable",
-        "summary_err": "Errors",
-        "summary_similar": "Similar Groups",
-        "dup_hash": "Hash",
-        "dup_remove": "To Remove",
-        "dup_size": "Size",
-        "dup_keep": "File To Keep",
-        "similar_list": "Similar Images",
-        "clear_logs": "Clear Logs",
-        "language": "Language",
-    },
-}
+SCOPE_ITEMS = [
+    ("Grupla + Kopya Temizle", ExecutionScope.GROUP_AND_DEDUPE),
+    ("Sadece Grupla", ExecutionScope.GROUP_ONLY),
+    ("Sadece Kopya Temizle", ExecutionScope.DEDUPE_ONLY),
+]
+MODE_ITEMS = [
+    ("Kopyala", OrganizationMode.COPY),
+    ("Taşı", OrganizationMode.MOVE),
+]
+DEDUPE_ITEMS = [
+    ("Karantina", DedupeMode.QUARANTINE),
+    ("Kapalı", DedupeMode.OFF),
+    ("Sil (tehlikeli)", DedupeMode.DELETE),
+]
 
 
-class FileGrouperApp(tk.Tk):
-    def __init__(self) -> None:
+# ----------------------------
+# Filters dialog
+# ----------------------------
+
+@dataclass
+class UiFilterDraft:
+    include_ext: str = ""
+    exclude_ext: str = ""
+    min_mb: str = ""
+    max_mb: str = ""
+    from_date: str = ""  # YYYY-MM-DD
+    to_date: str = ""    # YYYY-MM-DD
+
+
+class FiltersDialog(QDialog):
+    def __init__(self, parent: QWidget, draft: UiFilterDraft):
+        super().__init__(parent)
+        self.setWindowTitle("Filtreler")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        self.result: UiFilterDraft | None = None
+
+        self.include = QLineEdit(draft.include_ext)
+        self.exclude = QLineEdit(draft.exclude_ext)
+        self.min_mb = QLineEdit(draft.min_mb)
+        self.max_mb = QLineEdit(draft.max_mb)
+        self.from_date = QLineEdit(draft.from_date)
+        self.to_date = QLineEdit(draft.to_date)
+
+        form = QGridLayout()
+        r = 0
+        form.addWidget(QLabel("Sadece uzantılar (örn: jpg,png,mp4)"), r, 0); form.addWidget(self.include, r, 1); r += 1
+        form.addWidget(QLabel("Hariç uzantılar (örn: tmp,ds_store)"), r, 0); form.addWidget(self.exclude, r, 1); r += 1
+        form.addWidget(QLabel("Min boyut (MB)"), r, 0); form.addWidget(self.min_mb, r, 1); r += 1
+        form.addWidget(QLabel("Max boyut (MB)"), r, 0); form.addWidget(self.max_mb, r, 1); r += 1
+        form.addWidget(QLabel("Başlangıç (YYYY-AA-GG)"), r, 0); form.addWidget(self.from_date, r, 1); r += 1
+        form.addWidget(QLabel("Bitiş (YYYY-AA-GG)"), r, 0); form.addWidget(self.to_date, r, 1); r += 1
+
+        btn_row = QHBoxLayout()
+        btn_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        cancel = QPushButton("Vazgeç")
+        save = QPushButton("Kaydet")
+        save.setDefault(True)
+        btn_row.addWidget(cancel)
+        btn_row.addWidget(save)
+
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+
+        root = QVBoxLayout()
+        root.addLayout(form)
+        root.addSpacing(10)
+        root.addLayout(btn_row)
+        self.setLayout(root)
+
+    @Slot()
+    def _save(self):
+        self.result = UiFilterDraft(
+            include_ext=self.include.text().strip(),
+            exclude_ext=self.exclude.text().strip(),
+            min_mb=self.min_mb.text().strip(),
+            max_mb=self.max_mb.text().strip(),
+            from_date=self.from_date.text().strip(),
+            to_date=self.to_date.text().strip(),
+        )
+        self.accept()
+
+
+# ----------------------------
+# Duplicate group dialog
+# ----------------------------
+
+class DuplicateGroupDialog(QDialog):
+    def __init__(self, parent: QWidget, group: DuplicateGroup, protected_paths: set[str]):
+        super().__init__(parent)
+        self.group = group
+        self.selected_paths: set[str] | None = None
+
+        self.setWindowTitle("Kopya grubu")
+        self.setModal(True)
+        self.resize(960, 440)
+
+        group_paths = {str(item.full_path).lower() for item in group.files}
+        active_keep = {item for item in protected_paths if item in group_paths}
+        if not active_keep and group.files:
+            active_keep = {str(group.files[0].full_path).lower()}
+
+        root = QVBoxLayout()
+        header = QLabel(f"Hash: {group.sha256_hash[:16]}...   Toplam dosya: {len(group.files)}")
+        header.setStyleSheet("font-weight:600;")
+        hint = QLabel("Koru işaretli dosyalar silinmez/karantinaya alınmaz.")
+        hint.setStyleSheet("color: #6b7280;")
+        root.addWidget(header)
+        root.addWidget(hint)
+
+        self.table = QTableWidget(len(group.files), 4)
+        self.table.setHorizontalHeaderLabels(["Koru", "Boyut", "Tarih", "Dosya"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+
+        for row, file in enumerate(group.files):
+            path_text = str(file.full_path)
+            path_key = path_text.lower()
+
+            keep_item = QTableWidgetItem()
+            keep_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            keep_item.setCheckState(Qt.Checked if path_key in active_keep else Qt.Unchecked)
+            keep_item.setData(Qt.UserRole, path_key)
+            self.table.setItem(row, 0, keep_item)
+
+            size_item = QTableWidgetItem(format_size(file.size_bytes))
+            size_item.setTextAlignment(Qt.AlignVCenter | Qt.AlignRight)
+            self.table.setItem(row, 1, size_item)
+            self.table.setItem(row, 2, QTableWidgetItem(file.last_write_utc.astimezone().strftime("%Y-%m-%d %H:%M")))
+            self.table.setItem(row, 3, QTableWidgetItem(path_text))
+
+        root.addWidget(self.table, 1)
+
+        actions = QHBoxLayout()
+        actions.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        cancel = QPushButton("Vazgeç")
+        save = QPushButton("Seçimi Kaydet")
+        save.setDefault(True)
+        cancel.clicked.connect(self.reject)
+        save.clicked.connect(self._save)
+        actions.addWidget(cancel)
+        actions.addWidget(save)
+        root.addLayout(actions)
+
+        self.setLayout(root)
+
+    @Slot()
+    def _save(self):
+        selected: set[str] = set()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is None:
+                continue
+            if item.checkState() == Qt.Checked:
+                key = item.data(Qt.UserRole)
+                if isinstance(key, str):
+                    selected.add(key)
+
+        if not selected:
+            QMessageBox.warning(self, TR["err"], "En az 1 dosya korunmalı.")
+            return
+
+        self.selected_paths = selected
+        self.accept()
+
+
+# ----------------------------
+# Worker thread
+# ----------------------------
+
+class Worker(QObject):
+    log = Signal(str)
+    progress = Signal(object)  # OperationProgress
+    completed = Signal(object) # RunResult
+    cancelled = Signal()
+    failed = Signal(str)
+
+    def __init__(self, engine: FileGrouperEngine, options: RunOptions, cancel_event, pause_controller: PauseController):
+        super().__init__()
+        self.engine = engine
+        self.options = options
+        self.cancel_event = cancel_event
+        self.pause_controller = pause_controller
+
+    @Slot()
+    def run(self):
+        try:
+            result = self.engine.run(
+                self.options,
+                log=lambda m: self.log.emit(str(m)),
+                progress=lambda p: self.progress.emit(p),
+                cancel_event=self.cancel_event,
+                pause_controller=self.pause_controller,
+            )
+            self.completed.emit(result)
+        except OperationCancelledError:
+            self.cancelled.emit()
+        except Exception as exc:
+            msg = f"{exc}\n\n{traceback.format_exc()}"
+            self.failed.emit(msg)
+
+
+# ----------------------------
+# Main Window
+# ----------------------------
+
+class MainWindow(QMainWindow):
+    def __init__(self):
         super().__init__()
         self.engine = FileGrouperEngine()
-        self.title("FileGrouper")
-        self.geometry("1360x860")
-        self.minsize(1120, 720)
-        self.configure(bg=PALETTE["page"])
 
-        self.language_var = tk.StringVar(value="Turkce")
-        self.source_var = tk.StringVar()
-        self.target_var = tk.StringVar()
-        self.scope_var = tk.StringVar(value="Grupla + Kopya Temizle")
-        self.mode_var = tk.StringVar(value="Kopyala")
-        self.dedupe_var = tk.StringVar(value="Karantina")
-        self.dry_run_var = tk.BooleanVar(value=True)
-        self.similar_var = tk.BooleanVar(value=False)
-        self.show_advanced_var = tk.BooleanVar(value=False)
+        self.setWindowTitle(TR["title"])
+        self.setMinimumSize(1100, 720)
 
-        self.include_ext_var = tk.StringVar()
-        self.exclude_ext_var = tk.StringVar()
-        self.min_size_var = tk.StringVar()
-        self.max_size_var = tk.StringVar()
-        self.from_date_var = tk.StringVar()
-        self.to_date_var = tk.StringVar()
+        self.filters_draft = UiFilterDraft()
 
-        self.status_var = tk.StringVar(value="Hazir")
-        self.progress_var = tk.DoubleVar(value=0.0)
-
-        self.summary_vars = {
-            "total": tk.StringVar(value="0"),
-            "size": tk.StringVar(value="0 B"),
-            "dupes": tk.StringVar(value="0"),
-            "reclaim": tk.StringVar(value="0 B"),
-            "errors": tk.StringVar(value="0"),
-            "similar": tk.StringVar(value="0"),
-        }
-
-        self.queue: queue.Queue[tuple[str, object]] = queue.Queue()
-        self.worker: threading.Thread | None = None
-        self.cancel_event = threading.Event()
+        self.thread: QThread | None = None
+        self.worker: Worker | None = None
+        self.cancel_event = None
         self.pause_controller = PauseController()
         self.paused = False
         self.last_result: RunResult | None = None
+        self.preview_duplicate_groups: list[DuplicateGroup] = []
+        self.protected_duplicate_paths: set[str] = set()
 
-        self._configure_style()
         self._build_ui()
-        self._apply_language()
         self._set_running(False)
-        self.after(120, self._poll_queue)
-
-    def _configure_style(self) -> None:
-        style = ttk.Style(self)
-        style.theme_use("clam")
-
-        base_font = ("Avenir Next", 11)
-        style.configure("TFrame", background=PALETTE["page"])
-        style.configure("Card.TFrame", background=PALETTE["card"], borderwidth=1, relief="solid", bordercolor=PALETTE["border"])
-        style.configure("SoftCard.TFrame", background=PALETTE["card_alt"], borderwidth=1, relief="solid", bordercolor=PALETTE["border"])
-        style.configure("TLabel", background=PALETTE["page"], foreground=PALETTE["text"], font=base_font)
-        style.configure("Card.TLabel", background=PALETTE["card"], foreground=PALETTE["text"], font=base_font)
-        style.configure("Muted.TLabel", background=PALETTE["card"], foreground=PALETTE["muted"], font=("Avenir Next", 10))
-        style.configure("MetricName.TLabel", background=PALETTE["card_alt"], foreground=PALETTE["muted"], font=("Avenir Next", 10))
-        style.configure("MetricValue.TLabel", background=PALETTE["card_alt"], foreground=PALETTE["text"], font=("Avenir Next Demi Bold", 15))
-        style.configure("Heading.TLabel", background=PALETTE["card"], foreground=PALETTE["text"], font=("Avenir Next Demi Bold", 13))
-
-        style.configure("TEntry", fieldbackground="#ffffff", foreground=PALETTE["text"], bordercolor=PALETTE["border"])
-        style.configure("TCombobox", fieldbackground="#ffffff", foreground=PALETTE["text"], bordercolor=PALETTE["border"])
-
-        style.configure("Primary.TButton", foreground="#ffffff", background=PALETTE["accent"], bordercolor=PALETTE["accent_dark"], padding=(14, 9))
-        style.map("Primary.TButton", background=[("active", "#3b82f6")])
-
-        style.configure("Secondary.TButton", foreground=PALETTE["text"], background="#ffffff", bordercolor=PALETTE["border"], padding=(12, 8))
-        style.map("Secondary.TButton", background=[("active", "#f3f4f6")])
-
-        style.configure("Danger.TButton", foreground="#ffffff", background="#d94848", bordercolor="#c03b3b", padding=(12, 8))
-        style.map("Danger.TButton", background=[("active", "#ef5e5e")])
-
-        style.configure("TNotebook", background=PALETTE["card"], borderwidth=0)
-        style.configure("TNotebook.Tab", font=("Avenir Next Demi Bold", 10), padding=(14, 8), background="#f3f4f6", foreground=PALETTE["muted"])
-        style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", PALETTE["text"])])
-
-        style.configure("TLabelframe", background=PALETTE["card"], bordercolor=PALETTE["border"])
-        style.configure("TLabelframe.Label", background=PALETTE["card"], foreground=PALETTE["muted"], font=("Avenir Next Demi Bold", 10))
-
-        style.configure("TProgressbar", troughcolor="#eceff4", background=PALETTE["accent"], bordercolor=PALETTE["border"])
-
-    def _build_ui(self) -> None:
-        shell = ttk.Frame(self)
-        shell.pack(fill="both", expand=True, padx=14, pady=14)
-        shell.rowconfigure(1, weight=1)
-        shell.columnconfigure(0, weight=1)
-
-        self._build_header(shell)
-
-        body = ttk.Frame(shell)
-        body.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, weight=0)
-        body.columnconfigure(1, weight=1)
-
-        left_panel = ttk.Frame(body, style="Card.TFrame", padding=12)
-        left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 12))
-        left_panel.configure(width=380)
-        left_panel.grid_propagate(False)
-        self._build_left_panel(left_panel)
-
-        right_panel = ttk.Frame(body)
-        right_panel.grid(row=0, column=1, sticky="nsew")
-        right_panel.rowconfigure(1, weight=1)
-        right_panel.columnconfigure(0, weight=1)
-
-        self._build_metrics(right_panel)
-        self._build_tabs(right_panel)
-
-        footer = ttk.Frame(shell, style="Card.TFrame", padding=(10, 9))
-        footer.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-        footer.columnconfigure(1, weight=1)
-
-        self.status_label = ttk.Label(footer, textvariable=self.status_var, style="Card.TLabel")
-        self.status_label.grid(row=0, column=0, sticky="w")
-
-        self.progress_line = ttk.Progressbar(footer, variable=self.progress_var, maximum=100)
-        self.progress_line.grid(row=0, column=1, sticky="ew", padx=(10, 0))
-
-    def _build_header(self, parent: ttk.Frame) -> None:
-        hero = ttk.Frame(parent, style="Card.TFrame", padding=(14, 12))
-        hero.grid(row=0, column=0, sticky="ew")
-        hero.grid_columnconfigure(0, weight=1)
-
-        title_col = ttk.Frame(hero, style="Card.TFrame")
-        title_col.grid(row=0, column=0, sticky="w")
-
-        self.title_label = ttk.Label(title_col, text="FileGrouper", style="Heading.TLabel")
-        self.title_label.pack(anchor="w")
-
-        self.subtitle_label = ttk.Label(title_col, text="", style="Muted.TLabel")
-        self.subtitle_label.pack(anchor="w", pady=(2, 0))
-
-        right_col = ttk.Frame(hero, style="Card.TFrame")
-        right_col.grid(row=0, column=1, sticky="e")
-
-        self.lang_label = ttk.Label(right_col, style="Muted.TLabel")
-        self.lang_label.grid(row=0, column=0, sticky="e", padx=(0, 6))
-
-        self.lang_combo = ttk.Combobox(right_col, values=["Turkce", "English"], textvariable=self.language_var, width=10, state="readonly")
-        self.lang_combo.grid(row=0, column=1, sticky="e")
-        self.lang_combo.bind("<<ComboboxSelected>>", lambda _: self._apply_language())
-
-        self.dry_check = ttk.Checkbutton(right_col, variable=self.dry_run_var)
-        self.dry_check.grid(row=1, column=0, columnspan=2, sticky="e", pady=(4, 0))
-
-    def _build_left_panel(self, parent: ttk.Frame) -> None:
-        self.source_label = ttk.Label(parent, style="Card.TLabel")
-        self.source_label.pack(anchor="w")
-        source_row = ttk.Frame(parent, style="Card.TFrame")
-        source_row.pack(fill="x", pady=(4, 8))
-        ttk.Entry(source_row, textvariable=self.source_var).pack(side="left", fill="x", expand=True)
-        self.source_btn = ttk.Button(source_row, style="Secondary.TButton", command=self._browse_source)
-        self.source_btn.pack(side="left", padx=(6, 0))
-
-        self.target_label = ttk.Label(parent, style="Card.TLabel")
-        self.target_label.pack(anchor="w")
-        target_row = ttk.Frame(parent, style="Card.TFrame")
-        target_row.pack(fill="x", pady=(4, 8))
-        ttk.Entry(target_row, textvariable=self.target_var).pack(side="left", fill="x", expand=True)
-        self.target_btn = ttk.Button(target_row, style="Secondary.TButton", command=self._browse_target)
-        self.target_btn.pack(side="left", padx=(6, 0))
-
-        self.scope_label = ttk.Label(parent, style="Card.TLabel")
-        self.scope_label.pack(anchor="w")
-        self.scope_combo = ttk.Combobox(parent, textvariable=self.scope_var, state="readonly")
-        self.scope_combo.pack(fill="x", pady=(4, 8))
-
-        self.advanced_toggle = ttk.Checkbutton(parent, variable=self.show_advanced_var, command=self._toggle_advanced)
-        self.advanced_toggle.pack(anchor="w", pady=(0, 8))
-
-        self.advanced_section = ttk.Frame(parent, style="Card.TFrame")
-
-        options_row = ttk.Frame(self.advanced_section, style="Card.TFrame")
-        options_row.pack(fill="x", pady=(0, 8))
-        options_row.columnconfigure(0, weight=1)
-        options_row.columnconfigure(1, weight=1)
-
-        self.mode_label = ttk.Label(options_row, style="Card.TLabel")
-        self.mode_label.grid(row=0, column=0, sticky="w")
-        self.dedupe_label = ttk.Label(options_row, style="Card.TLabel")
-        self.dedupe_label.grid(row=0, column=1, sticky="w", padx=(8, 0))
-
-        self.mode_combo = ttk.Combobox(options_row, textvariable=self.mode_var, state="readonly")
-        self.mode_combo.grid(row=1, column=0, sticky="ew", pady=(4, 0))
-        self.dedupe_combo = ttk.Combobox(options_row, textvariable=self.dedupe_var, state="readonly")
-        self.dedupe_combo.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(4, 0))
-
-        self.similar_check = ttk.Checkbutton(self.advanced_section, variable=self.similar_var)
-        self.similar_check.pack(anchor="w", pady=(2, 10))
-
-        self.filters_frame = ttk.LabelFrame(self.advanced_section)
-        self.filters_frame.pack(fill="x", pady=(0, 10))
-
-        self.include_label = ttk.Label(self.filters_frame)
-        self.include_label.grid(row=0, column=0, sticky="w", padx=8, pady=(8, 2))
-        ttk.Entry(self.filters_frame, textvariable=self.include_ext_var).grid(row=1, column=0, sticky="ew", padx=8)
-
-        self.exclude_label = ttk.Label(self.filters_frame)
-        self.exclude_label.grid(row=2, column=0, sticky="w", padx=8, pady=(8, 2))
-        ttk.Entry(self.filters_frame, textvariable=self.exclude_ext_var).grid(row=3, column=0, sticky="ew", padx=8)
-
-        size_row = ttk.Frame(self.filters_frame)
-        size_row.grid(row=4, column=0, sticky="ew", padx=8, pady=(8, 2))
-        size_row.columnconfigure(1, weight=1)
-        size_row.columnconfigure(3, weight=1)
-
-        self.min_label = ttk.Label(size_row)
-        self.min_label.grid(row=0, column=0, sticky="w")
-        ttk.Entry(size_row, textvariable=self.min_size_var, width=8).grid(row=0, column=1, sticky="ew", padx=(4, 8))
-
-        self.max_label = ttk.Label(size_row)
-        self.max_label.grid(row=0, column=2, sticky="w")
-        ttk.Entry(size_row, textvariable=self.max_size_var, width=8).grid(row=0, column=3, sticky="ew", padx=(4, 0))
-
-        date_row = ttk.Frame(self.filters_frame)
-        date_row.grid(row=5, column=0, sticky="ew", padx=8, pady=(8, 10))
-        date_row.columnconfigure(1, weight=1)
-        date_row.columnconfigure(3, weight=1)
-
-        self.from_label = ttk.Label(date_row)
-        self.from_label.grid(row=0, column=0, sticky="w")
-        ttk.Entry(date_row, textvariable=self.from_date_var, width=10).grid(row=0, column=1, sticky="ew", padx=(4, 8))
-
-        self.to_label = ttk.Label(date_row)
-        self.to_label.grid(row=0, column=2, sticky="w")
-        ttk.Entry(date_row, textvariable=self.to_date_var, width=10).grid(row=0, column=3, sticky="ew", padx=(4, 0))
-
-        self.filters_frame.columnconfigure(0, weight=1)
-
-        self.actions = ttk.Frame(parent, style="Card.TFrame")
-        self.actions.pack(fill="x")
-        self.actions.columnconfigure(0, weight=1)
-        self.actions.columnconfigure(1, weight=1)
-
-        self.preview_btn = ttk.Button(self.actions, style="Primary.TButton", command=lambda: self._start_run(False))
-        self.preview_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
-
-        self.apply_btn = ttk.Button(self.actions, style="Primary.TButton", command=lambda: self._start_run(True))
-        self.apply_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
-
-        self.pause_btn = ttk.Button(self.actions, style="Secondary.TButton", command=self._toggle_pause)
-        self.pause_btn.grid(row=1, column=0, sticky="ew", padx=(0, 4), pady=(0, 6))
-
-        self.cancel_btn = ttk.Button(self.actions, style="Danger.TButton", command=self._cancel_run)
-        self.cancel_btn.grid(row=1, column=1, sticky="ew", padx=(4, 0), pady=(0, 6))
-
-        self.undo_btn = ttk.Button(self.actions, style="Secondary.TButton", command=self._undo_last)
-        self.undo_btn.grid(row=2, column=0, sticky="ew", padx=(0, 4))
-
-        self.export_btn = ttk.Button(self.actions, style="Secondary.TButton", command=self._export_report)
-        self.export_btn.grid(row=2, column=1, sticky="ew", padx=(4, 0))
-
-        self._toggle_advanced()
-
-    def _build_metrics(self, parent: ttk.Frame) -> None:
-        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
-        card.grid(row=0, column=0, sticky="ew")
-        card.columnconfigure(0, weight=1)
-
-        top = ttk.Frame(card, style="Card.TFrame")
-        top.grid(row=0, column=0, sticky="ew")
-        top.columnconfigure(0, weight=1)
-        self.progress_title = ttk.Label(top, style="Muted.TLabel", text="Progress")
-        self.progress_title.grid(row=0, column=0, sticky="w")
-        self.progress_label = ttk.Label(top, style="Muted.TLabel", text="0%")
-        self.progress_label.grid(row=0, column=1, sticky="e")
-
-        self.progress_card = ttk.Progressbar(card, variable=self.progress_var, maximum=100)
-        self.progress_card.grid(row=1, column=0, sticky="ew", pady=(8, 10))
-
-        grid = ttk.Frame(card, style="Card.TFrame")
-        grid.grid(row=2, column=0, sticky="ew")
-        for col in range(3):
-            grid.columnconfigure(col, weight=1)
-
-        self.summary_text_labels: dict[str, ttk.Label] = {}
-        keys = ["total", "size", "dupes", "reclaim", "errors", "similar"]
-        for idx, key in enumerate(keys):
-            row, col = divmod(idx, 3)
-            tile = ttk.Frame(grid, style="SoftCard.TFrame", padding=(10, 8))
-            tile.grid(row=row, column=col, sticky="nsew", padx=4, pady=4)
-            name = ttk.Label(tile, style="MetricName.TLabel")
-            name.pack(anchor="w")
-            value = ttk.Label(tile, style="MetricValue.TLabel", textvariable=self.summary_vars[key])
-            value.pack(anchor="w", pady=(2, 0))
-            self.summary_text_labels[key] = name
-
-    def _build_tabs(self, parent: ttk.Frame) -> None:
-        body = ttk.Frame(parent, style="Card.TFrame", padding=8)
-        body.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
-        body.rowconfigure(0, weight=1)
-        body.columnconfigure(0, weight=1)
-
-        self.notebook = ttk.Notebook(body)
-        self.notebook.grid(row=0, column=0, sticky="nsew")
-
-        dup_tab = ttk.Frame(self.notebook)
-        log_tab = ttk.Frame(self.notebook)
-        quick_tab = ttk.Frame(self.notebook)
-
-        self.notebook.add(dup_tab, text="")
-        self.notebook.add(log_tab, text="")
-        self.notebook.add(quick_tab, text="")
-
-        dup_tab.rowconfigure(0, weight=1)
-        dup_tab.rowconfigure(2, weight=1)
-        dup_tab.columnconfigure(0, weight=1)
-
-        self.dup_tree = ttk.Treeview(dup_tab, columns=("hash", "remove", "size", "keep"), show="headings", height=10)
-        self.dup_tree.grid(row=0, column=0, sticky="nsew")
-
-        dup_scroll = ttk.Scrollbar(dup_tab, orient="vertical", command=self.dup_tree.yview)
-        dup_scroll.grid(row=0, column=1, sticky="ns")
-        self.dup_tree.configure(yscrollcommand=dup_scroll.set)
-
-        self.similar_title = ttk.Label(dup_tab, style="Muted.TLabel")
-        self.similar_title.grid(row=1, column=0, sticky="w", pady=(8, 4))
-
-        self.similar_list = tk.Listbox(
-            dup_tab,
-            bg="#ffffff",
-            fg=PALETTE["text"],
-            borderwidth=1,
-            highlightthickness=1,
-            highlightbackground=PALETTE["border"],
-            font=("Avenir Next", 10),
-        )
-        self.similar_list.grid(row=2, column=0, sticky="nsew")
-
-        sim_scroll = ttk.Scrollbar(dup_tab, orient="vertical", command=self.similar_list.yview)
-        sim_scroll.grid(row=2, column=1, sticky="ns")
-        self.similar_list.configure(yscrollcommand=sim_scroll.set)
-
-        log_tab.rowconfigure(1, weight=1)
-        log_tab.columnconfigure(0, weight=1)
-
-        log_toolbar = ttk.Frame(log_tab, style="Card.TFrame")
-        log_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        log_toolbar.columnconfigure(0, weight=1)
-
-        self.clear_logs_btn = ttk.Button(log_toolbar, style="Secondary.TButton", command=self._clear_logs)
-        self.clear_logs_btn.grid(row=0, column=1, sticky="e")
-
-        self.log_text = tk.Text(
-            log_tab,
-            state="disabled",
-            font=("Menlo", 11),
-            bg="#ffffff",
-            fg="#2d3f56",
-            borderwidth=1,
-            highlightthickness=1,
-            highlightbackground=PALETTE["border"],
-        )
-        self.log_text.grid(row=1, column=0, sticky="nsew")
-        self.log_text.tag_configure("error", foreground="#c24a4a")
-
-        quick_tab.rowconfigure(0, weight=1)
-        quick_tab.columnconfigure(0, weight=1)
-        self.quick_label = ttk.Label(quick_tab, justify="left", style="Card.TLabel")
-        self.quick_label.grid(row=0, column=0, sticky="nw", padx=12, pady=12)
-
-    def _current_text(self) -> dict[str, str]:
-        return LANG_TEXTS[self.language_var.get()]
-
-    def _apply_language(self) -> None:
-        text = self._current_text()
-
-        self.title(text["title"])
-        self.title_label.config(text=text["title"])
-        self.subtitle_label.config(text=text["subtitle"])
-        self.lang_label.config(text=text["language"])
-
-        self.source_label.config(text=text["source"])
-        self.target_label.config(text=text["target"])
-        self.source_btn.config(text=text["browse"])
-        self.target_btn.config(text=text["browse"])
-
-        self.scope_label.config(text=text["scope"])
-        self.advanced_toggle.config(text=text["advanced_toggle"])
-        self.mode_label.config(text=text["mode"])
-        self.dedupe_label.config(text=text["dedupe"])
-        self.dry_check.config(text=text["dry_run"])
-        self.similar_check.config(text=text["similar"])
-
-        self.preview_btn.config(text=text["preview"])
-        self.apply_btn.config(text=text["apply"])
-        self.pause_btn.config(text=text["resume"] if self.paused else text["pause"])
-        self.cancel_btn.config(text=text["cancel"])
-        self.undo_btn.config(text=text["undo"])
-        self.export_btn.config(text=text["export"])
-
-        self.filters_frame.config(text=text["filters"])
-        self.include_label.config(text=text["include_ext"])
-        self.exclude_label.config(text=text["exclude_ext"])
-        self.min_label.config(text=text["min_mb"])
-        self.max_label.config(text=text["max_mb"])
-        self.from_label.config(text=text["from_date"])
-        self.to_label.config(text=text["to_date"])
-
-        self.progress_title.config(text=text["progress_title"])
-        self.notebook.tab(0, text=text["tab_duplicates"])
-        self.notebook.tab(1, text=text["tab_logs"])
-        self.notebook.tab(2, text=text["tab_quick"])
-        self.quick_label.config(text=text["quick"])
-
-        self.summary_text_labels["total"].config(text=text["summary_total"])
-        self.summary_text_labels["size"].config(text=text["summary_size"])
-        self.summary_text_labels["dupes"].config(text=text["summary_dupes"])
-        self.summary_text_labels["reclaim"].config(text=text["summary_reclaim"])
-        self.summary_text_labels["errors"].config(text=text["summary_err"])
-        self.summary_text_labels["similar"].config(text=text["summary_similar"])
-
-        self.similar_title.config(text=text["similar_list"])
-        self.clear_logs_btn.config(text=text["clear_logs"])
-
-        self.dup_tree.heading("hash", text=text["dup_hash"])
-        self.dup_tree.heading("remove", text=text["dup_remove"])
-        self.dup_tree.heading("size", text=text["dup_size"])
-        self.dup_tree.heading("keep", text=text["dup_keep"])
-        self.dup_tree.column("hash", width=120, stretch=False)
-        self.dup_tree.column("remove", width=90, stretch=False, anchor="center")
-        self.dup_tree.column("size", width=110, stretch=False, anchor="e")
-        self.dup_tree.column("keep", width=520, stretch=True)
-
-        if self.status_var.get() in {"", "Ready", "Hazir"}:
-            self.status_var.set(text["status_ready"])
-
-        self.scope_combo["values"] = self._scope_labels()
-        if self.scope_var.get() not in self.scope_combo["values"]:
-            self.scope_var.set(self._scope_labels()[0])
-
-        self.mode_combo["values"] = self._mode_labels()
-        if self.mode_var.get() not in self.mode_combo["values"]:
-            self.mode_var.set(self._mode_labels()[0])
-
-        self.dedupe_combo["values"] = self._dedupe_labels()
-        if self.dedupe_var.get() not in self.dedupe_combo["values"]:
-            self.dedupe_var.set(self._dedupe_labels()[0])
-
-        self._toggle_advanced()
-
-    def _toggle_advanced(self) -> None:
-        show = self.show_advanced_var.get()
-        if show:
-            self.advanced_section.pack(fill="x", pady=(0, 10), before=self.actions)
-            self.undo_btn.grid()
-            self.export_btn.grid()
+        self._set_status(TR["ready"])
+
+    # ---- UI construction ----
+
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+
+        root = QVBoxLayout()
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+        central.setLayout(root)
+
+        # Top bar
+        title_row = QHBoxLayout()
+        title_col = QVBoxLayout()
+        self.title_lbl = QLabel(TR["title"])
+        self.title_lbl.setStyleSheet("font-weight:700; font-size:18px;")
+        self.sub_lbl = QLabel(TR["subtitle"])
+        self.sub_lbl.setStyleSheet("color: rgba(127,127,127,1);")
+        title_col.addWidget(self.title_lbl)
+        title_col.addWidget(self.sub_lbl)
+        title_row.addLayout(title_col)
+        title_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+
+        self.dry_check = QCheckBox(TR["dry_run"])
+        self.dry_check.setChecked(True)
+        self.similar_check = QCheckBox(TR["similar"])
+        title_row.addWidget(self.dry_check)
+        title_row.addWidget(self.similar_check)
+
+        root.addLayout(title_row)
+
+        # Card: inputs + options
+        card = QGroupBox()
+        card.setTitle("")
+        card_layout = QGridLayout()
+        card_layout.setHorizontalSpacing(10)
+        card_layout.setVerticalSpacing(10)
+        card.setLayout(card_layout)
+
+        self.source_edit = QLineEdit()
+        self.target_edit = QLineEdit()
+
+        src_btn = QPushButton(TR["browse"])
+        tgt_btn = QPushButton(TR["browse"])
+        src_btn.clicked.connect(self._browse_source)
+        tgt_btn.clicked.connect(self._browse_target)
+
+        card_layout.addWidget(QLabel(TR["source"]), 0, 0)
+        card_layout.addWidget(self.source_edit, 0, 1)
+        card_layout.addWidget(src_btn, 0, 2)
+
+        card_layout.addWidget(QLabel(TR["target"]), 1, 0)
+        card_layout.addWidget(self.target_edit, 1, 1)
+        card_layout.addWidget(tgt_btn, 1, 2)
+
+        # Options column
+        opt_box = QVBoxLayout()
+        self.scope_combo = QComboBox()
+        for label, _ in SCOPE_ITEMS:
+            self.scope_combo.addItem(label)
+        self.mode_combo = QComboBox()
+        for label, _ in MODE_ITEMS:
+            self.mode_combo.addItem(label)
+        self.dedupe_combo = QComboBox()
+        for label, _ in DEDUPE_ITEMS:
+            self.dedupe_combo.addItem(label)
+
+        opt_grid = QGridLayout()
+        opt_grid.addWidget(QLabel(TR["scope"]), 0, 0)
+        opt_grid.addWidget(self.scope_combo, 0, 1)
+        opt_grid.addWidget(QLabel(TR["mode"]), 1, 0)
+        opt_grid.addWidget(self.mode_combo, 1, 1)
+        opt_grid.addWidget(QLabel(TR["dedupe"]), 2, 0)
+        opt_grid.addWidget(self.dedupe_combo, 2, 1)
+
+        opt_box.addLayout(opt_grid)
+
+        self.filters_btn = QPushButton(TR["filters"])
+        self.filters_btn.clicked.connect(self._open_filters)
+        opt_box.addWidget(self.filters_btn)
+
+        card_layout.addLayout(opt_box, 0, 3, 2, 1)
+
+        root.addWidget(card)
+
+        # Actions
+        actions = QHBoxLayout()
+        self.preview_btn = QPushButton(TR["preview"])
+        self.apply_btn = QPushButton(TR["apply"])
+        self.pause_btn = QPushButton(TR["pause"])
+        self.cancel_btn = QPushButton(TR["cancel"])
+
+        self.preview_btn.clicked.connect(lambda: self._start_run(False))
+        self.apply_btn.clicked.connect(lambda: self._start_run(True))
+        self.pause_btn.clicked.connect(self._toggle_pause)
+        self.cancel_btn.clicked.connect(self._cancel_run)
+
+        self.preview_btn.setMinimumWidth(140)
+        self.apply_btn.setMinimumWidth(140)
+
+        actions.addWidget(self.preview_btn)
+        actions.addWidget(self.apply_btn)
+        actions.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        actions.addWidget(self.pause_btn)
+        actions.addWidget(self.cancel_btn)
+        root.addLayout(actions)
+
+        # Status + progress
+        stat_row = QHBoxLayout()
+        self.status_lbl = QLabel(TR["ready"])
+        self.progress_lbl = QLabel("0%")
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+
+        stat_row.addWidget(self.status_lbl)
+        stat_row.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        stat_row.addWidget(self.progress_lbl)
+
+        root.addLayout(stat_row)
+        root.addWidget(self.progress)
+
+        # Metrics
+        metrics = QHBoxLayout()
+        self.m_total = QLabel("0")
+        self.m_size = QLabel("0 B")
+        self.m_dupes = QLabel("0")
+        self.m_reclaim = QLabel("0 B")
+        self.m_errors = QLabel("0")
+        self.m_similar = QLabel("0")
+
+        def metric(title: str, value_lbl: QLabel) -> QWidget:
+            w = QWidget()
+            v = QVBoxLayout()
+            v.setContentsMargins(0, 0, 0, 0)
+            t = QLabel(title)
+            t.setStyleSheet("color: rgba(127,127,127,1);")
+            value_lbl.setStyleSheet("font-weight:700; font-size:14px;")
+            v.addWidget(t)
+            v.addWidget(value_lbl)
+            w.setLayout(v)
+            return w
+
+        metrics.addWidget(metric("Toplam", self.m_total))
+        metrics.addWidget(metric("Boyut", self.m_size))
+        metrics.addWidget(metric("Kopya", self.m_dupes))
+        metrics.addWidget(metric("Kazanım", self.m_reclaim))
+        metrics.addWidget(metric("Hata", self.m_errors))
+        metrics.addWidget(metric("Benzer", self.m_similar))
+        root.addLayout(metrics)
+
+        # Tabs
+        self.tabs = QTabWidget()
+        root.addWidget(self.tabs, 1)
+
+        # Duplicates table
+        self.dupes_table = QTableWidget(0, 4)
+        self.dupes_table.setHorizontalHeaderLabels(["Hash", "Silinecek", "Boyut", "Kalacak (ilk dosya)"])
+        self.dupes_table.horizontalHeader().setStretchLastSection(True)
+        self.dupes_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.dupes_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.dupes_table.setAlternatingRowColors(True)
+        self.dupes_table.setToolTip("Detay ve secim icin satira cift tiklayin.")
+        self.dupes_table.cellDoubleClicked.connect(self._open_duplicate_group_dialog)
+        self.tabs.addTab(self.dupes_table, TR["tab_dupes"])
+
+        # Logs
+        logs_wrap = QWidget()
+        logs_layout = QVBoxLayout()
+        logs_wrap.setLayout(logs_layout)
+
+        toolbar = QHBoxLayout()
+        self.clear_logs_btn = QPushButton("Log temizle")
+        self.undo_btn = QPushButton(TR["undo"])
+        self.export_btn = QPushButton(TR["export"])
+        self.clear_logs_btn.clicked.connect(self._clear_logs)
+        self.undo_btn.clicked.connect(self._undo_last)
+        self.export_btn.clicked.connect(self._export_report)
+
+        toolbar.addWidget(self.clear_logs_btn)
+        toolbar.addItem(QSpacerItem(10, 10, QSizePolicy.Expanding, QSizePolicy.Minimum))
+        toolbar.addWidget(self.undo_btn)
+        toolbar.addWidget(self.export_btn)
+        logs_layout.addLayout(toolbar)
+
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.NoWrap)
+        logs_layout.addWidget(self.log_text)
+
+        self.tabs.addTab(logs_wrap, TR["tab_logs"])
+
+        # Menu (tiny)
+        m = self.menuBar().addMenu("Dosya")
+        act_quit = QAction("Çıkış", self)
+        act_quit.triggered.connect(self.close)
+        m.addAction(act_quit)
+
+    # ---- actions ----
+
+    def _browse_source(self):
+        path = QFileDialog.getExistingDirectory(self, TR["source"])
+        if path:
+            self.source_edit.setText(path)
+            if not self.target_edit.text().strip():
+                p = Path(path)
+                self.target_edit.setText(str(p.parent / f"{p.name}_Organized"))
+
+    def _browse_target(self):
+        path = QFileDialog.getExistingDirectory(self, TR["target"])
+        if path:
+            self.target_edit.setText(path)
+
+    def _open_filters(self):
+        dlg = FiltersDialog(self, self.filters_draft)
+        if dlg.exec() == QDialog.Accepted and dlg.result is not None:
+            self.filters_draft = dlg.result
+            self._log("Filtreler güncellendi.")
+
+    def _toggle_pause(self):
+        if not self._is_running():
+            return
+        self.paused = not self.paused
+        if self.paused:
+            self.pause_controller.pause()
+            self._set_status(TR["paused"])
+            self.pause_btn.setText(TR["resume"])
         else:
-            self.advanced_section.pack_forget()
-            self.undo_btn.grid_remove()
-            self.export_btn.grid_remove()
-            self.similar_var.set(False)
+            self.pause_controller.resume()
+            self._set_status(TR["running"])
+            self.pause_btn.setText(TR["pause"])
 
-    def _scope_labels(self) -> list[str]:
-        if self.language_var.get() == "English":
-            return ["Group + Duplicate Cleanup", "Group Only", "Duplicate Cleanup Only"]
-        return ["Grupla + Kopya Temizle", "Sadece Grupla", "Sadece Kopya Temizle"]
+    def _cancel_run(self):
+        if not self._is_running():
+            return
+        if self.cancel_event is not None:
+            self.cancel_event.set()
 
-    def _mode_labels(self) -> list[str]:
-        return ["Copy", "Move"] if self.language_var.get() == "English" else ["Kopyala", "Tasi"]
-
-    def _dedupe_labels(self) -> list[str]:
-        return ["Quarantine", "Off", "Delete"] if self.language_var.get() == "English" else ["Karantina", "Kapali", "Sil"]
-
-    def _scope_enum(self) -> ExecutionScope:
-        current = self.scope_var.get().strip()
-        labels = self._scope_labels()
-        if current == labels[1]:
-            return ExecutionScope.GROUP_ONLY
-        if current == labels[2]:
-            return ExecutionScope.DEDUPE_ONLY
-        return ExecutionScope.GROUP_AND_DEDUPE
-
-    def _mode_enum(self) -> OrganizationMode:
-        return OrganizationMode.MOVE if self.mode_var.get() in {"Move", "Tasi"} else OrganizationMode.COPY
-
-    def _dedupe_enum(self) -> DedupeMode:
-        value = self.dedupe_var.get()
-        if value in {"Off", "Kapali"}:
-            return DedupeMode.OFF
-        if value in {"Delete", "Sil"}:
-            return DedupeMode.DELETE
-        return DedupeMode.QUARANTINE
-
-    def _browse_source(self) -> None:
-        selected = filedialog.askdirectory()
-        if selected:
-            self.source_var.set(selected)
-            if not self.target_var.get().strip():
-                source = Path(selected)
-                self.target_var.set(str(source.parent / f"{source.name}_Organized"))
-
-    def _browse_target(self) -> None:
-        selected = filedialog.askdirectory()
-        if selected:
-            self.target_var.set(selected)
-
-    def _build_filter_options(self) -> ScanFilterOptions:
-        def parse_ext(raw: str) -> list[str]:
-            parts = [item.strip() for item in raw.replace(";", ",").split(",")]
-            return [item for item in parts if item]
-
-        def parse_mb(raw: str) -> int | None:
-            value = raw.strip()
-            if not value:
-                return None
-            try:
-                return int(float(value) * 1024 * 1024)
-            except ValueError:
-                return None
-
-        def parse_date(raw: str):
-            value = raw.strip()
-            if not value:
-                return None
-            try:
-                return datetime.fromisoformat(value).astimezone()
-            except ValueError:
-                return None
-
-        return ScanFilterOptions(
-            include_extensions=parse_ext(self.include_ext_var.get()),
-            exclude_extensions=parse_ext(self.exclude_ext_var.get()),
-            min_size_bytes=parse_mb(self.min_size_var.get()),
-            max_size_bytes=parse_mb(self.max_size_var.get()),
-            from_utc=parse_date(self.from_date_var.get()),
-            to_utc=parse_date(self.to_date_var.get()),
-            exclude_hidden=True,
-            exclude_system=True,
-        )
-
-    def _start_run(self, apply_changes: bool) -> None:
-        if self.worker is not None and self.worker.is_alive():
+    def _undo_last(self):
+        target_text = self.target_edit.text().strip()
+        if not target_text:
+            QMessageBox.warning(self, TR["err"], TR["need_target_undo"])
+            return
+        try:
+            summary = self.engine.transaction_service.undo_last_transaction(Path(target_text))
+        except Exception as exc:
+            QMessageBox.critical(self, TR["err"], str(exc))
             return
 
-        source_text = self.source_var.get().strip()
-        target_text = self.target_var.get().strip()
+        self._set_metrics_from_summary(summary, similar_count=int(self.m_similar.text() or "0"))
+        self._set_status("Geri alındı")
+        self._log("Undo tamamlandı.")
+
+    def _export_report(self):
+        if self.last_result is None:
+            QMessageBox.warning(self, TR["err"], TR["need_preview"])
+            return
+        directory = QFileDialog.getExistingDirectory(self, "Rapor klasörü seç")
+        if not directory:
+            return
+        report = self.engine.build_report(self.last_result)
+        json_path, csv_path, pdf_path = self.engine.report_exporter.export(report, Path(directory))
+        QMessageBox.information(self, "Rapor", f"{json_path.name}\n{csv_path.name}\n{pdf_path.name}")
+
+    # ---- run pipeline ----
+
+    def _start_run(self, apply_changes: bool):
+        if self._is_running():
+            return
+
+        source_text = self.source_edit.text().strip()
+        target_text = self.target_edit.text().strip()
 
         if not source_text:
-            messagebox.showerror("Error", "Source folder required")
+            QMessageBox.warning(self, TR["err"], TR["need_source"])
             return
 
         source = Path(source_text)
@@ -692,207 +596,388 @@ class FileGrouperApp(tk.Tk):
 
         error = self.engine.validate_paths(source, target, scope)
         if error and apply_changes:
-            messagebox.showerror("Error", error)
+            QMessageBox.critical(self, TR["err"], error)
             return
 
-        self.cancel_event = threading.Event()
+        # “Sil” seçildiyse ekstra uyarı (satılacak ürün: kazaya izin yok)
+        if self._dedupe_enum() == DedupeMode.DELETE and apply_changes and not self.dry_check.isChecked():
+            ok = QMessageBox.question(
+                self,
+                "Tehlikeli İşlem",
+                "Kopya modu 'Sil' ve test modu kapalı.\nBu işlem geri alınamaz.\nEmin misin?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if ok != QMessageBox.Yes:
+                return
+
+        # reset ui
+        self._clear_logs()
+        self._clear_dupes_table()
+        self.last_result = None
+        if not apply_changes:
+            self.preview_duplicate_groups = []
+            self.protected_duplicate_paths = set()
+        self.progress.setValue(0)
+        self.progress_lbl.setText("0%")
+        self._set_status(TR["running"])
+
+        # thread init
+        import threading as _th
+        self.cancel_event = _th.Event()
         self.pause_controller = PauseController()
         self.paused = False
-        self._set_running(True)
+        self.pause_btn.setText(TR["pause"])
 
-        run_options = RunOptions(
+        options = RunOptions(
             source_path=source,
             target_path=target,
             organization_mode=self._mode_enum(),
             dedupe_mode=self._dedupe_enum(),
             execution_scope=scope,
-            dry_run=self.dry_run_var.get(),
-            detect_similar_images=self.similar_var.get(),
+            dry_run=self.dry_check.isChecked(),
+            detect_similar_images=self.similar_check.isChecked(),
             apply_changes=apply_changes,
             filter_options=self._build_filter_options(),
+            duplicate_protected_paths=set(self.protected_duplicate_paths),
         )
 
-        for item in self.dup_tree.get_children():
-            self.dup_tree.delete(item)
-        self.similar_list.delete(0, tk.END)
-        self._clear_logs()
-        self.last_result = None
-        self.progress_var.set(0.0)
+        self.thread = QThread()
+        self.worker = Worker(self.engine, options, self.cancel_event, self.pause_controller)
+        self.worker.moveToThread(self.thread)
 
-        self.status_var.set(self._current_text()["status_running"])
+        self.thread.started.connect(self.worker.run)
+        self.worker.log.connect(self._log)
+        self.worker.progress.connect(self._on_progress)
+        self.worker.completed.connect(self._on_complete)
+        self.worker.cancelled.connect(self._on_cancelled)
+        self.worker.failed.connect(self._on_failed)
 
-        self.worker = threading.Thread(target=self._run_worker, args=(run_options,), daemon=True)
-        self.worker.start()
+        # cleanup
+        self.worker.completed.connect(self.thread.quit)
+        self.worker.cancelled.connect(self.thread.quit)
+        self.worker.failed.connect(self.thread.quit)
+        self.thread.finished.connect(self._thread_finished)
 
-    def _run_worker(self, options: RunOptions) -> None:
-        def log(message: str) -> None:
-            self.queue.put(("log", message))
+        self._set_running(True)
+        self.thread.start()
 
-        def progress(item: OperationProgress) -> None:
-            self.queue.put(("progress", item))
-
-        try:
-            result = self.engine.run(
-                options,
-                log=log,
-                progress=progress,
-                cancel_event=self.cancel_event,
-                pause_controller=self.pause_controller,
-            )
-            self.queue.put(("complete", result))
-        except OperationCancelledError:
-            self.queue.put(("cancelled", None))
-        except Exception as exc:  # noqa: BLE001
-            self.queue.put(("error", str(exc)))
-
-    def _toggle_pause(self) -> None:
-        if self.worker is None or not self.worker.is_alive():
-            return
-
-        self.paused = not self.paused
-        if self.paused:
-            self.pause_controller.pause()
-            self.status_var.set(self._current_text()["status_paused"])
-        else:
-            self.pause_controller.resume()
-            self.status_var.set(self._current_text()["status_resumed"])
-
-        self.pause_btn.config(text=self._current_text()["resume"] if self.paused else self._current_text()["pause"])
-
-    def _cancel_run(self) -> None:
-        if self.worker is None or not self.worker.is_alive():
-            return
-        self.cancel_event.set()
-
-    def _undo_last(self) -> None:
-        target_text = self.target_var.get().strip()
-        if not target_text:
-            messagebox.showerror("Error", "Target folder required for undo")
-            return
-
-        try:
-            summary = self.engine.transaction_service.undo_last_transaction(Path(target_text))
-        except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Error", str(exc))
-            return
-
-        self.summary_vars["total"].set(str(summary.total_files_scanned))
-        self.summary_vars["size"].set(format_size(summary.total_bytes_scanned))
-        self.summary_vars["dupes"].set(str(summary.duplicate_files_found))
-        self.summary_vars["reclaim"].set(format_size(summary.duplicate_bytes_reclaimable))
-        self.summary_vars["errors"].set(str(len(summary.errors)))
-        self.status_var.set("Undo tamamlandi" if self.language_var.get() == "Turkce" else "Undo completed")
-
-    def _export_report(self) -> None:
-        if self.last_result is None:
-            messagebox.showerror("Error", "Run preview/apply first")
-            return
-
-        directory = filedialog.askdirectory()
-        if not directory:
-            return
-
-        report = self.engine.build_report(self.last_result)
-        json_path, csv_path, pdf_path = self.engine.report_exporter.export(report, Path(directory))
-        messagebox.showinfo("Report", f"{json_path.name}\n{csv_path.name}\n{pdf_path.name}")
-
-    def _poll_queue(self) -> None:
-        while True:
-            try:
-                kind, payload = self.queue.get_nowait()
-            except queue.Empty:
-                break
-
-            if kind == "log":
-                self._append_log(str(payload))
-            elif kind == "progress":
-                self._handle_progress(payload)
-            elif kind == "complete":
-                self._handle_complete(payload)
-            elif kind == "cancelled":
-                self.status_var.set(self._current_text()["status_cancelled"])
-                self._set_running(False)
-            elif kind == "error":
-                messagebox.showerror("Error", str(payload))
-                self._set_running(False)
-
-        self.after(120, self._poll_queue)
-
-    def _handle_progress(self, progress: OperationProgress) -> None:
-        if progress.total_files <= 0:
-            return
-
-        percent = min(100.0, (progress.processed_files / progress.total_files) * 100.0)
-        self.progress_var.set(percent)
-        self.progress_label.config(text=f"{percent:0.0f}% - {progress.message}")
-
-    def _handle_complete(self, result: RunResult) -> None:
-        self.last_result = result
-        summary = result.summary
-
-        self.summary_vars["total"].set(str(summary.total_files_scanned))
-        self.summary_vars["size"].set(format_size(summary.total_bytes_scanned))
-        self.summary_vars["dupes"].set(str(summary.duplicate_files_found))
-        self.summary_vars["reclaim"].set(format_size(summary.duplicate_bytes_reclaimable))
-        self.summary_vars["errors"].set(str(len(summary.errors)))
-        self.summary_vars["similar"].set(str(len(result.similar_image_groups)))
-
-        for group in result.duplicate_groups[:300]:
-            keeper = str(group.files[0].full_path) if group.files else "-"
-            self.dup_tree.insert(
-                "",
-                tk.END,
-                values=(
-                    f"{group.sha256_hash[:12]}..",
-                    f"x{max(0, len(group.files) - 1)}",
-                    format_size(group.size_bytes),
-                    keeper,
-                ),
-            )
-
-        self.similar_list.delete(0, tk.END)
-        for group in result.similar_image_groups[:200]:
-            self.similar_list.insert(tk.END, f"{group.anchor_path.name} (+{len(group.similar_paths)})")
-
-        for error in summary.errors:
-            self._append_log(f"ERROR: {error}")
-
-        self.status_var.set(self._current_text()["status_done"])
+    @Slot()
+    def _thread_finished(self):
         self._set_running(False)
+        self.thread = None
+        self.worker = None
 
-    def _append_log(self, message: str) -> None:
-        self.log_text.configure(state="normal")
-        tag = "error" if message.upper().startswith("ERROR") else None
-        if tag:
-            self.log_text.insert("end", message + "\n", tag)
-        else:
-            self.log_text.insert("end", message + "\n")
-        self.log_text.see("end")
-        self.log_text.configure(state="disabled")
+    # ---- signals from worker ----
 
-    def _clear_logs(self) -> None:
-        self.log_text.configure(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.configure(state="disabled")
+    @Slot(object)
+    def _on_progress(self, p: OperationProgress):
+        if p.total_files > 0:
+            percent = min(100, int((p.processed_files / p.total_files) * 100))
+            self.progress.setValue(percent)
+            self.progress_lbl.setText(f"{percent}%")
+        if p.message:
+            self._set_status(p.message)
 
-    def _set_running(self, running: bool) -> None:
-        control_state = "disabled" if running else "normal"
-        self.preview_btn.configure(state=control_state)
-        self.apply_btn.configure(state=control_state)
+    @Slot(object)
+    def _on_complete(self, result: RunResult):
+        self.last_result = result
+        s = result.summary
+        self.preview_duplicate_groups = result.duplicate_groups
+        self.protected_duplicate_paths = {
+            str(group.files[0].full_path).lower()
+            for group in result.duplicate_groups
+            if group.files
+        }
 
-        idle_state = "disabled" if running else "normal"
-        self.undo_btn.configure(state=idle_state)
-        self.export_btn.configure(state=idle_state)
+        self._set_metrics_from_summary(s, similar_count=len(result.similar_image_groups))
 
-        active_state = "normal" if running else "disabled"
-        self.pause_btn.configure(state=active_state)
-        self.cancel_btn.configure(state=active_state)
+        # fill dupes table (cap for performance)
+        visible_limit = 600
+        for group_index, group in enumerate(result.duplicate_groups[:visible_limit]):
+            self._add_dupe_row(group_index)
+        if len(result.duplicate_groups) > visible_limit:
+            self._log(f"Not: {len(result.duplicate_groups) - visible_limit} kopya grup performans icin tabloda gosterilmedi.")
+
+        for err in s.errors:
+            self._log(f"ERROR: {err}")
+
+        self._set_status(TR["done"])
+
+    @Slot()
+    def _on_cancelled(self):
+        self._set_status(TR["cancelled"])
+        self._log("İşlem iptal edildi.")
+
+    @Slot(str)
+    def _on_failed(self, msg: str):
+        self._set_status(TR["err"])
+        self._log("ERROR: " + msg)
+        QMessageBox.critical(self, TR["err"], "Bir hata oluştu.\nDetay log sekmesinde.")
+
+    # ---- helpers ----
+
+    def _scope_enum(self) -> ExecutionScope:
+        return dict(SCOPE_ITEMS)[self.scope_combo.currentText()]
+
+    def _mode_enum(self) -> OrganizationMode:
+        return dict(MODE_ITEMS)[self.mode_combo.currentText()]
+
+    def _dedupe_enum(self) -> DedupeMode:
+        return dict(DEDUPE_ITEMS)[self.dedupe_combo.currentText()]
+
+    def _build_filter_options(self) -> ScanFilterOptions:
+        d = self.filters_draft
+
+        def parse_ext(raw: str) -> list[str]:
+            parts = [x.strip() for x in raw.replace(";", ",").split(",")]
+            return [x for x in parts if x]
+
+        def parse_mb(raw: str) -> int | None:
+            t = raw.strip()
+            if not t:
+                return None
+            try:
+                return int(float(t) * 1024 * 1024)
+            except ValueError:
+                return None
+
+        def parse_date(raw: str):
+            t = raw.strip()
+            if not t:
+                return None
+            try:
+                return datetime.fromisoformat(t).astimezone()
+            except ValueError:
+                return None
+
+        return ScanFilterOptions(
+            include_extensions=parse_ext(d.include_ext),
+            exclude_extensions=parse_ext(d.exclude_ext),
+            min_size_bytes=parse_mb(d.min_mb),
+            max_size_bytes=parse_mb(d.max_mb),
+            from_utc=parse_date(d.from_date),
+            to_utc=parse_date(d.to_date),
+            exclude_hidden=True,
+            exclude_system=True,
+        )
+
+    def _set_running(self, running: bool):
+        self.preview_btn.setEnabled(not running)
+        self.apply_btn.setEnabled(not running)
+        self.filters_btn.setEnabled(not running)
+        self.pause_btn.setEnabled(running)
+        self.cancel_btn.setEnabled(running)
+        self.scope_combo.setEnabled(not running)
+        self.mode_combo.setEnabled(not running)
+        self.dedupe_combo.setEnabled(not running)
+        self.dry_check.setEnabled(not running)
+        self.similar_check.setEnabled(not running)
 
         if not running:
             self.paused = False
-            self.pause_btn.config(text=self._current_text()["pause"])
+            self.pause_btn.setText(TR["pause"])
+
+    def _is_running(self) -> bool:
+        return self.thread is not None and self.thread.isRunning()
+
+    def _set_status(self, text: str):
+        self.status_lbl.setText(text)
+
+    def _log(self, msg: str):
+        self.log_text.append(msg)
+
+    def _clear_logs(self):
+        self.log_text.clear()
+
+    def _clear_dupes_table(self):
+        self.dupes_table.setRowCount(0)
+
+    def _open_duplicate_group_dialog(self, row: int, _column: int):
+        first = self.dupes_table.item(row, 0)
+        if first is None:
+            return
+        group_index = first.data(Qt.UserRole)
+        if not isinstance(group_index, int):
+            return
+        if group_index < 0 or group_index >= len(self.preview_duplicate_groups):
+            return
+
+        group = self.preview_duplicate_groups[group_index]
+        dlg = DuplicateGroupDialog(self, group, self.protected_duplicate_paths)
+        if dlg.exec() != QDialog.Accepted or dlg.selected_paths is None:
+            return
+
+        group_paths = {str(item.full_path).lower() for item in group.files}
+        self.protected_duplicate_paths -= group_paths
+        self.protected_duplicate_paths |= dlg.selected_paths
+        self._refresh_dupe_row(row, group_index)
+        self._log(f"Kopya grubu secimi guncellendi: {group.sha256_hash[:12]}..")
+
+    def _refresh_dupe_row(self, row: int, group_index: int):
+        if group_index < 0 or group_index >= len(self.preview_duplicate_groups):
+            return
+        group = self.preview_duplicate_groups[group_index]
+        keep_count = sum(1 for item in group.files if str(item.full_path).lower() in self.protected_duplicate_paths)
+        if keep_count <= 0 and group.files:
+            keep_count = 1
+        remove_count = max(0, len(group.files) - keep_count)
+        keep_text = (
+            str(group.files[0].full_path)
+            if keep_count <= 1 and group.files
+            else f"{keep_count} dosya korunuyor"
+        )
+        values = [group.sha256_hash[:12] + "..", f"x{remove_count}", format_size(group.size_bytes), keep_text]
+        for c, val in enumerate(values):
+            item = self.dupes_table.item(row, c) or QTableWidgetItem()
+            item.setText(val)
+            if c == 0:
+                item.setData(Qt.UserRole, group_index)
+            if c in (0, 1, 2):
+                item.setTextAlignment(Qt.AlignVCenter | (Qt.AlignRight if c == 2 else Qt.AlignLeft))
+            self.dupes_table.setItem(row, c, item)
+
+    def _add_dupe_row(self, group_index: int):
+        if group_index < 0 or group_index >= len(self.preview_duplicate_groups):
+            return
+        r = self.dupes_table.rowCount()
+        self.dupes_table.insertRow(r)
+        self._refresh_dupe_row(r, group_index)
+
+    def _set_metrics_from_summary(self, summary, similar_count: int):
+        self.m_total.setText(str(summary.total_files_scanned))
+        self.m_size.setText(format_size(summary.total_bytes_scanned))
+        self.m_dupes.setText(str(summary.duplicate_files_found))
+        self.m_reclaim.setText(format_size(summary.duplicate_bytes_reclaimable))
+        self.m_errors.setText(str(len(summary.errors)))
+        self.m_similar.setText(str(similar_count))
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._is_running():
+            super().closeEvent(event)
+            return
+
+        self._set_status("Kapatiliyor...")
+        if self.cancel_event is not None:
+            self.cancel_event.set()
+        self.pause_controller.resume()
+
+        if self.thread is not None:
+            self.thread.wait(3000)
+            if self.thread.isRunning():
+                QMessageBox.warning(
+                    self,
+                    TR["err"],
+                    "Islem hala devam ediyor. Lutfen once Iptal ile durdurun.",
+                )
+                event.ignore()
+                return
+
+        super().closeEvent(event)
 
 
 def launch_gui() -> None:
-    app = FileGrouperApp()
-    app.mainloop()
+    app = QApplication(sys.argv)
+
+    # Better fonts on macOS/Win
+    app.setFont(QFont("SF Pro Text", 11))
+
+    # Theme: try qdarktheme, otherwise use a clean built-in light stylesheet
+    themed = False
+    if qdarktheme is not None:
+        # qdarktheme has had different APIs across versions.
+        for fn_name in ("setup_theme", "load_stylesheet"):
+            fn = getattr(qdarktheme, fn_name, None)
+            if callable(fn):
+                try:
+                    if fn_name == "setup_theme":
+                        fn("light")
+                    else:
+                        # Some versions expose load_stylesheet() -> str
+                        css = fn(theme="light") if "theme" in fn.__code__.co_varnames else fn()
+                        if isinstance(css, str) and css.strip():
+                            app.setStyleSheet(css)
+                    themed = True
+                    break
+                except Exception:
+                    pass
+
+    if not themed:
+        # Minimal modern light theme (no external dependency)
+        app.setStyleSheet("""
+            QWidget { background: #f6f7f9; color: #111827; font-size: 12px; }
+            QGroupBox { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; margin-top: 10px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #6b7280; }
+            QLineEdit, QComboBox, QSpinBox, QDateEdit {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                padding: 8px 10px;
+            }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus {
+                border: 1px solid #2563eb;
+            }
+            QPushButton {
+                background: #ffffff;
+                border: 1px solid #d1d5db;
+                border-radius: 10px;
+                padding: 9px 14px;
+            }
+            QPushButton:hover { background: #f3f4f6; }
+            QPushButton:pressed { background: #e5e7eb; }
+            QPushButton:disabled { color: #9ca3af; border-color: #e5e7eb; background: #f9fafb; }
+
+            QProgressBar {
+                background: #eef2f7;
+                border: 1px solid #e5e7eb;
+                border-radius: 9px;
+                text-align: center;
+                height: 18px;
+            }
+            QProgressBar::chunk {
+                background: #2563eb;
+                border-radius: 9px;
+            }
+
+            QTabWidget::pane { border: 1px solid #e5e7eb; border-radius: 10px; background: #ffffff; }
+            QTabBar::tab {
+                background: #f3f4f6;
+                border: 1px solid #e5e7eb;
+                border-bottom: none;
+                padding: 10px 14px;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+                color: #374151;
+                margin-right: 6px;
+            }
+            QTabBar::tab:selected { background: #ffffff; color: #111827; }
+
+            QHeaderView::section {
+                background: #f9fafb;
+                border: 1px solid #e5e7eb;
+                padding: 8px 10px;
+                color: #374151;
+                font-weight: 600;
+            }
+            QTableWidget {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+                gridline-color: #f1f5f9;
+                selection-background-color: #dbeafe;
+                selection-color: #111827;
+            }
+            QTextEdit {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
+
+    w = MainWindow()
+    w.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    launch_gui()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -45,6 +45,7 @@ class RunOptions:
     detect_similar_images: bool
     apply_changes: bool
     filter_options: ScanFilterOptions
+    duplicate_protected_paths: set[str] = field(default_factory=set)
 
 
 @dataclass(slots=True)
@@ -123,6 +124,8 @@ class FileGrouperEngine:
                 cancel_event=cancel_event,
                 pause_controller=pause_controller,
             )
+            if options.detect_similar_images and log is not None:
+                log("Not: Benzer gorseller sadece raporlanir; silme/karantina sadece kesin kopyalara uygulanir.")
 
         summary = self._build_summary(files, duplicate_groups)
 
@@ -143,6 +146,7 @@ class FileGrouperEngine:
                 to_skip = self.organizer.process_duplicates(
                     duplicate_groups,
                     dedupe_mode=options.dedupe_mode,
+                    protected_paths=options.duplicate_protected_paths,
                     source_root=source,
                     dry_run=options.dry_run,
                     summary=summary,

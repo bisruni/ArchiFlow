@@ -21,24 +21,64 @@ class HashCacheService:
         compute_hash: Callable[[], str],
     ) -> str:
         key = str(path.resolve()).lower()
-        ticks = int(last_write_utc.timestamp())
+        ticks = int(last_write_utc.timestamp() * 1_000_000)
 
         with self._lock:
             self._load_if_needed()
             assert self._cache is not None
             current = self._cache.get(key)
             if current and current.get("size") == size_bytes and current.get("mtime") == ticks and current.get("sha256"):
-                return str(current["sha256"])
+                return str(current["sha256"]).lower()
 
-        sha256_hash = compute_hash()
+        sha256_hash = compute_hash().lower()
 
         with self._lock:
             self._load_if_needed()
             assert self._cache is not None
-            self._cache[key] = {"size": size_bytes, "mtime": ticks, "sha256": sha256_hash}
+            current = self._cache.get(key) or {}
+            current["size"] = size_bytes
+            current["mtime"] = ticks
+            current["sha256"] = sha256_hash
+            self._cache[key] = current
             self._save()
 
         return sha256_hash
+
+    def get_or_compute_quick_signature(
+        self,
+        path: Path,
+        size_bytes: int,
+        last_write_utc: datetime,
+        compute_signature: Callable[[], str],
+    ) -> str:
+        key = str(path.resolve()).lower()
+        ticks = int(last_write_utc.timestamp() * 1_000_000)
+
+        with self._lock:
+            self._load_if_needed()
+            assert self._cache is not None
+            current = self._cache.get(key)
+            if (
+                current
+                and current.get("size") == size_bytes
+                and current.get("mtime") == ticks
+                and current.get("quick_signature")
+            ):
+                return str(current["quick_signature"]).lower()
+
+        quick_signature = compute_signature().lower()
+
+        with self._lock:
+            self._load_if_needed()
+            assert self._cache is not None
+            current = self._cache.get(key) or {}
+            current["size"] = size_bytes
+            current["mtime"] = ticks
+            current["quick_signature"] = quick_signature
+            self._cache[key] = current
+            self._save()
+
+        return quick_signature
 
     def _load_if_needed(self) -> None:
         if self._cache is not None:

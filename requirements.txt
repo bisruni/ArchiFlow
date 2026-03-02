@@ -1,2 +1,3 @@
-# Standard-library only runtime.
-# Optional: add Pillow if you plan to implement pixel-based image similarity later.
+PySide6>=6.7,<7
+pyqtdarktheme>=2.1
+Pillow>=10,<12
