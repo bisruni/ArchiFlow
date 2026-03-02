@@ -1,0 +1,2 @@
+# Standard-library only runtime.
+# Optional: add Pillow if you plan to implement pixel-based image similarity later.

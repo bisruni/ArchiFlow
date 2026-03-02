@@ -1,86 +1,94 @@
-# FileGrouper
+# FileGrouper (Python)
 
-FileGrouper can run as an Avalonia desktop app and as a CLI.
-The CLI scans files, groups them by type and date, and handles duplicates safely.
+FileGrouper, harici disk veya klasorleri tarayip dosyalari tur + tarihe gore duzenleyen,
+kopya dosyalari bulup temizleyebilen bir Python uygulamasidir.
 
-## Desktop GUI
+- GUI: Tkinter masaustu arayuzu
+- CLI: `scan`, `preview`, `apply`
+- Scope ayrimi: sadece gruplama / sadece kopya temizleme / ikisi birden
 
-Run the desktop app:
+## Gereksinimler
+
+- Python 3.10+
+
+## Calistirma
 
 ```bash
-dotnet run
+python3 main.py gui
 ```
 
-Main workflow in GUI:
-
-1. Language defaults to `Türkçe` (switch from top-right `Dil/Language` selector)
-2. Pick `Source Folder`
-3. Pick `Target Folder`
-4. Choose `Organization Mode` and `Duplicate Mode`
-5. Start with `Preview Analysis`
-6. If results look good, turn off `Dry Run` and click `Apply Organization`
-
-## New Advanced Features
-
-The GUI now includes:
-
-1. Real-time progress, pause/resume, and cancel
-2. Smart filters (extensions, size, date, hidden/system toggle)
-3. Undo last transaction
-4. Incremental hash cache (file-based cache)
-5. Similar image grouping (byte-fingerprint based)
-6. Report export (`JSON`, `CSV`, `PDF`)
-7. Reusable operation profiles
-
-## Build
+Kisa yol:
 
 ```bash
-dotnet build
+python3 main.py
 ```
 
-## CLI Commands
+## CLI
+
+Yardim:
 
 ```bash
-dotnet run -- help
+python3 main.py -h
 ```
 
 ### 1) Scan
 
-Scans a folder and prints grouped summary.
+Sadece tarama ve ozet:
 
 ```bash
-dotnet run -- scan --source /Volumes/USB
+python3 main.py scan --source /Volumes/USB
 ```
 
 ### 2) Preview
 
-Like scan, plus duplicate detection (size + SHA-256 hash).
+Tarama + kopya analizi (degisiklik yapmaz):
 
 ```bash
-dotnet run -- preview --source /Volumes/USB
+python3 main.py preview --source /Volumes/USB
 ```
 
 ### 3) Apply
 
-Groups files into `target/<category>/<year>/<month>/...`.
+Secilen islemi uygular:
 
 ```bash
-dotnet run -- apply --source /Volumes/USB --target /Volumes/USB_Organized --mode copy --dedupe quarantine --dry-run
+python3 main.py apply \
+  --source /Volumes/USB \
+  --target /Volumes/USB_Organized \
+  --mode copy \
+  --dedupe quarantine \
+  --scope group_and_dedupe \
+  --dry-run
 ```
 
-Remove `--dry-run` to execute.
+`--dry-run` kaldirildiginda gercek degisiklik yapar.
 
-## Options
+## Temel Parametreler
 
-- `--mode copy|move` (default: `copy`)
-- `--dedupe off|quarantine|delete` (default: `quarantine`)
-- `--report <path.json>` write JSON report
-- `--dry-run` preview only, no file changes
+- `--mode copy|move`
+- `--dedupe off|quarantine|delete`
+- `--scope group_and_dedupe|group_only|dedupe_only`
+- `--similar-images` benzer gorselleri bulur
+- `--report <path.json>` sonuc raporu yazar
 
-## Safety Rules
+## GUI Ozeti
 
-- `--source` and `--target` cannot be the same path.
-- `--target` cannot be inside `--source`.
-- Duplicate handling keeps one file and processes the rest.
-- In `quarantine` mode, duplicates are moved under:
+1. Kaynak klasoru sec
+2. Hedef klasoru sec (gruplama varsa zorunlu)
+3. `Calisma Kapsami` sec
+4. `Onizleme` ile kontrol et
+5. `Test modu`nu kapatip `Secili Islemi Uygula`
+
+## Guvenlik Kurallari
+
+- Kaynak ve hedef ayni olamaz.
+- Hedef, kaynak klasorun icinde olamaz.
+- `quarantine` modunda kopyalar su klasore tasinir:
   `SOURCE/Duplicates_Quarantine/<timestamp>/...`
+- Yapilan islem kayitlari `.filegrouper/transactions` altina yazilir.
+- `Son Islemi Geri Al` transaction kaydina gore calisir.
+
+## Not
+
+Bu repo artik Python ana uygulamasini icerir. Eski .NET dosyalari kaynakta duruyor olabilir,
+ancak aktif calisma akisi `python3 main.py` uzerindendir.
