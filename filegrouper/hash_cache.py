@@ -102,7 +102,7 @@ class HashCacheService:
             with self._cache_path.open("r", encoding="utf-8") as stream:
                 payload = json.load(stream)
             self._cache = payload if isinstance(payload, dict) else {}
-        except Exception:  # noqa: BLE001
+        except (OSError, IOError, json.JSONDecodeError):  # File I/O or invalid JSON
             self._cache = {}
 
     def _save(self) -> None:

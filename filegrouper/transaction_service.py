@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from .models import OperationSummary, OperationTransaction, TransactionAction, TransactionStatus
@@ -17,8 +18,24 @@ class TransactionService:
 
     def save_transaction_to_path(self, transaction: OperationTransaction, destination: Path) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with destination.open("w", encoding="utf-8") as stream:
-            json.dump(transaction.to_dict(), stream, ensure_ascii=True, indent=2)
+        payload = transaction.to_dict()
+        temp_path = destination.with_name(f".{destination.name}.tmp")
+
+        with temp_path.open("w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=True, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+
+        os.replace(temp_path, destination)
+        try:
+            dir_fd = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            # Directory fsync is not available on all platforms.
+            pass
         return destination
 
     def find_latest_transaction_file(self, target_root: Path) -> Path | None:
@@ -47,9 +64,10 @@ class TransactionService:
         for entry in reversed(transaction.entries):
             if entry.status is not TransactionStatus.DONE:
                 if log:
+                    detail = f" reason={entry.error_message}" if entry.error_message else ""
                     log(
                         f"Undo skipped ({entry.status.value}) for '{entry.source_path}' "
-                        f"[{entry.action.value}]"
+                        f"[{entry.action.value}]{detail}"
                     )
                 continue
             try:
@@ -69,11 +87,12 @@ class TransactionService:
                         summary.duplicates_quarantined += 1
                 elif entry.action is TransactionAction.DELETED_DUPLICATE:
                     summary.errors.append(
-                        f"Cannot restore deleted duplicate (not reversible): {entry.source_path}"
+                        f"Deleted file cannot be restored ({entry.source_path}). "
+                        f"Backup your data before using delete mode."
                     )
                     if log:
-                        log(f"Skipped deleted duplicate restore: {entry.source_path}")
-            except Exception as exc:  # noqa: BLE001
+                        log(f"Cannot restore deleted duplicate: {entry.source_path}")
+            except (OSError, IOError, PermissionError) as exc:  # File operation failures
                 summary.errors.append(f"Undo failed for '{entry.source_path}': {exc}")
                 if log:
                     log(f"Undo failed for '{entry.source_path}': {exc}")

@@ -57,7 +57,7 @@ class FileScanner:
                         category=classify(path),
                     )
                 )
-            except Exception as exc:  # noqa: BLE001
+            except (OSError, IOError, PermissionError) as exc:  # File stat or path issues
                 if errors is not None:
                     errors.append(f"Could not inspect file '{path}': {exc}")
                 if skipped_files is not None:
@@ -96,7 +96,7 @@ class FileScanner:
                             files.append(path)
                         elif entry.is_dir(follow_symlinks=False):
                             dirs.append(path)
-            except Exception as exc:  # noqa: BLE001
+            except (OSError, IOError, PermissionError) as exc:  # Directory iteration issues
                 if errors is not None:
                     errors.append(f"Could not read folder '{current}': {exc}")
                 if log:

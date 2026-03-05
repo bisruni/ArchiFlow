@@ -270,6 +270,8 @@ class TransactionEntry:
     destination_path: Path | None
     timestamp_utc: datetime
     status: TransactionStatus = TransactionStatus.PENDING
+    error_message: str | None = None
+    reversible: bool = True  # Can this action be undone?
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -278,6 +280,8 @@ class TransactionEntry:
             "destination_path": str(self.destination_path) if self.destination_path else None,
             "timestamp_utc": self.timestamp_utc.isoformat(),
             "status": self.status.value,
+            "error_message": self.error_message,
+            "reversible": self.reversible,
         }
 
     @staticmethod
@@ -289,6 +293,8 @@ class TransactionEntry:
             destination_path=Path(destination) if destination else None,
             timestamp_utc=datetime.fromisoformat(payload["timestamp_utc"]),
             status=TransactionStatus(payload.get("status", TransactionStatus.DONE.value)),
+            error_message=payload.get("error_message"),
+            reversible=payload.get("reversible", True),
         )
 
 

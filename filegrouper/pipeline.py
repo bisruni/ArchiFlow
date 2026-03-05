@@ -258,7 +258,7 @@ class FileGrouperEngine:
             result.auto_report_csv_path = csv_path
             if log:
                 log(f"Rapor yazildi: {json_path.name}, {csv_path.name}")
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, IOError) as exc:  # Report export file I/O failures
             result.summary.errors.append(f"Report export failed: {exc}")
             if log:
                 log(f"Report export failed: {exc}")

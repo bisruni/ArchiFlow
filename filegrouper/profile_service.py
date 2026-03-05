@@ -22,7 +22,7 @@ class ProfileService:
             if not isinstance(payload, list):
                 return self.seed_profiles()
             return [OperationProfile.from_dict(item) for item in payload]
-        except Exception:  # noqa: BLE001
+        except (OSError, IOError, json.JSONDecodeError, ValueError):  # File I/O or JSON parsing
             return self.seed_profiles()
 
     def save_profiles(self, profiles: list[OperationProfile]) -> None:

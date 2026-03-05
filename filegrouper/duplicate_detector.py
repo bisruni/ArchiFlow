@@ -12,13 +12,13 @@ from .models import DuplicateGroup, FileRecord, OperationProgress, OperationStag
 
 try:
     from PIL import Image  # type: ignore
-except Exception:
+except ImportError:
     Image = None
 
 try:
     import pillow_heif  # type: ignore
     pillow_heif.register_heif_opener()
-except Exception:
+except ImportError:
     pass
 
 LogFn = Callable[[str], None]
@@ -90,7 +90,7 @@ class DuplicateDetector:
                         )
                     else:
                         quick_signature = compute_quick_signature(file.full_path)
-                except Exception as exc:  # noqa: BLE001
+                except (OSError, IOError, ValueError) as exc:  # File I/O or hash computation
                     if log:
                         log(f"Could not compute quick signature for '{file.full_path}': {exc}")
                     continue
@@ -131,7 +131,7 @@ class DuplicateDetector:
                         )
                     else:
                         sha256_hash = compute_sha256(file.full_path)
-                except Exception as exc:  # noqa: BLE001
+                except (OSError, IOError, ValueError) as exc:  # File I/O or hash computation
                     if log:
                         log(f"Could not hash '{file.full_path}': {exc}")
                     continue
@@ -214,7 +214,7 @@ class DuplicateDetector:
 
             try:
                 image_hashes.append((item, compute_dhash(item.full_path)))
-            except Exception as exc:  # noqa: BLE001
+            except (OSError, ValueError, RuntimeError) as exc:  # Image I/O or processing error
                 if log:
                     log(f"Could not compute image hash for '{item.full_path}': {exc}")
 

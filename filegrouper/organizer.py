@@ -32,8 +32,10 @@ ProgressFn = Callable[[OperationProgress], None]
 
 class FileOrganizer:
     def __init__(self) -> None:
-        self._tx_flush_interval_seconds = 0.25
+        self._tx_flush_interval_seconds = 1.0
+        self._tx_flush_update_threshold = 25
         self._tx_last_flush_monotonic = 0.0
+        self._tx_updates_since_flush = 0
         self._tx_dirty = False
         self._tx_context_key: str | None = None
 
@@ -58,24 +60,39 @@ class FileOrganizer:
         if dedupe_mode is DedupeMode.OFF:
             return []
 
-        protected_lookup = {item.lower() for item in (protected_paths or set())}
+        # Helper: Normalize paths for comparison (Windows case-insensitive safe)
+        def normalize_path_for_comparison(p: str | Path) -> Path:
+            """Convert path to absolute resolved form for reliable comparison."""
+            if isinstance(p, str):
+                p = Path(p)
+            return p.resolve()
+
+        # Convert protected_paths to normalized resolved paths
+        protected_paths_normalized = {
+            normalize_path_for_comparison(p) for p in (protected_paths or set())
+        }
+
         unique_remove: dict[str, FileRecord] = {}
         for group in duplicate_groups:
             if len(group.files) < 2:
                 continue
 
-            keep_lookup = {
-                str(item.full_path).lower()
+            # Find which files should be kept (protected or first in group)
+            keep_files_normalized = {
+                normalize_path_for_comparison(item.full_path)
                 for item in group.files
-                if str(item.full_path).lower() in protected_lookup
+                if normalize_path_for_comparison(item.full_path) in protected_paths_normalized
             }
-            if not keep_lookup:
-                keep_lookup = {str(group.files[0].full_path).lower()}
 
+            if not keep_files_normalized:
+                # If none protected, keep the first file
+                keep_files_normalized = {normalize_path_for_comparison(group.files[0].full_path)}
+
+            # Mark duplicates for removal (files not in keep set)
             for item in group.files:
-                if str(item.full_path).lower() in keep_lookup:
+                if normalize_path_for_comparison(item.full_path) in keep_files_normalized:
                     continue
-                unique_remove[str(item.full_path).lower()] = item
+                unique_remove[str(item.full_path)] = item
 
         to_remove = list(unique_remove.values())
         if not to_remove:
@@ -103,6 +120,7 @@ class FileOrganizer:
                             destination_path=None,
                             timestamp_utc=datetime.utcnow(),
                             status=TransactionStatus.PENDING,
+                            reversible=False,  # Deleted files cannot be restored
                         )
                         self._append_transaction_entry(
                             transaction=transaction,
@@ -115,6 +133,7 @@ class FileOrganizer:
                     summary.duplicates_deleted += 1
                     if tx_entry is not None:
                         tx_entry.status = TransactionStatus.DONE
+                        tx_entry.error_message = None
                         self._flush_transaction(transaction, transaction_service, transaction_file_path)
                 else:
                     relative = safe_relative_path(duplicate.full_path, source_root)
@@ -141,10 +160,12 @@ class FileOrganizer:
                     summary.duplicates_quarantined += 1
                     if tx_entry is not None:
                         tx_entry.status = TransactionStatus.DONE
+                        tx_entry.error_message = None
                         self._flush_transaction(transaction, transaction_service, transaction_file_path)
-            except Exception as exc:  # noqa: BLE001
+            except (OSError, IOError, PermissionError) as exc:  # File operation failures
                 if tx_entry is not None:
                     tx_entry.status = TransactionStatus.FAILED
+                    tx_entry.error_message = str(exc)
                     self._flush_transaction(transaction, transaction_service, transaction_file_path)
                 summary.errors.append(f"Could not process duplicate '{duplicate.full_path}': {exc}")
                 if log:
@@ -230,10 +251,12 @@ class FileOrganizer:
                     shutil.move(str(file.full_path), str(destination_path))
                     summary.files_moved += 1
                 tx_entry.status = TransactionStatus.DONE
+                tx_entry.error_message = None
                 self._flush_transaction(transaction, transaction_service, transaction_file_path)
-            except Exception as exc:  # noqa: BLE001
+            except (OSError, IOError, PermissionError) as exc:  # File operation failures
                 if tx_entry is not None:
                     tx_entry.status = TransactionStatus.FAILED
+                    tx_entry.error_message = str(exc)
                     self._flush_transaction(transaction, transaction_service, transaction_file_path)
                 summary.errors.append(f"Could not process '{file.full_path}': {exc}")
                 if log:
@@ -269,7 +292,8 @@ class FileOrganizer:
         if transaction is None:
             return
         transaction.entries.append(entry)
-        self._flush_transaction(transaction, transaction_service, transaction_file_path)
+        # Safety-critical: pending entry must hit disk before file mutation starts.
+        self._flush_transaction(transaction, transaction_service, transaction_file_path, force=True)
 
     def _flush_transaction(
         self,
@@ -286,15 +310,22 @@ class FileOrganizer:
         if self._tx_context_key != key:
             self._tx_context_key = key
             self._tx_last_flush_monotonic = 0.0
+            self._tx_updates_since_flush = 0
             self._tx_dirty = False
 
         self._tx_dirty = True
+        self._tx_updates_since_flush += 1
         now = time.monotonic()
-        if not force and (now - self._tx_last_flush_monotonic) < self._tx_flush_interval_seconds:
+        if (
+            not force
+            and self._tx_updates_since_flush < self._tx_flush_update_threshold
+            and (now - self._tx_last_flush_monotonic) < self._tx_flush_interval_seconds
+        ):
             return
 
         transaction_service.save_transaction_to_path(transaction, transaction_file_path)
         self._tx_last_flush_monotonic = now
+        self._tx_updates_since_flush = 0
         self._tx_dirty = False
 
     def finalize_transaction_journal(

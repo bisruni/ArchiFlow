@@ -11,6 +11,7 @@ from .models import DedupeMode, ExecutionScope, OrganizationMode, ScanFilterOpti
 from .pause_controller import PauseController
 from .pipeline import FileGrouperEngine, RunOptions
 from .utils import format_size
+from .validators import ValidationError, validate_source_path, validate_target_path, validate_paths_separated, validate_similarity_max_distance
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,9 +76,37 @@ def main(argv: list[str] | None = None) -> int:
             percent = item.processed_files / item.total_files * 100
             print(f"[{item.stage.value}] {percent:0.0f}% - {item.message}")
 
+    # Early input validation for CLI commands
+    try:
+        # Validate source path (required for all commands)
+        source_path = validate_source_path(args.source)
+        
+        # Determine scope to check if grouping is included
+        if args.command == "scan":
+            scope = ExecutionScope.GROUP_ONLY
+            target_path = None
+        elif args.command == "preview":
+            scope = ExecutionScope.GROUP_AND_DEDUPE
+            target_path = None
+        else:  # apply
+            scope = ExecutionScope(args.scope)
+            # Validate target path (may be required depending on scope)
+            target_path = validate_target_path(args.target, scope.includes_grouping)
+        
+        # Ensure source and target are properly separated
+        validate_paths_separated(source_path, target_path)
+        
+        # Validate image similarity parameter if specified
+        if getattr(args, "similar_images", False):
+            validate_similarity_max_distance(10)  # Default hamming distance
+            
+    except ValidationError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
     if args.command == "scan":
         run_options = RunOptions(
-            source_path=Path(args.source),
+            source_path=source_path,
             target_path=None,
             organization_mode=OrganizationMode.COPY,
             dedupe_mode=DedupeMode.OFF,
@@ -89,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif args.command == "preview":
         run_options = RunOptions(
-            source_path=Path(args.source),
+            source_path=source_path,
             target_path=None,
             organization_mode=OrganizationMode.COPY,
             dedupe_mode=DedupeMode.QUARANTINE,
@@ -101,11 +130,11 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         run_options = RunOptions(
-            source_path=Path(args.source),
-            target_path=Path(args.target).expanduser() if args.target else None,
+            source_path=source_path,
+            target_path=target_path,
             organization_mode=OrganizationMode(args.mode),
             dedupe_mode=DedupeMode(args.dedupe),
-            execution_scope=ExecutionScope(args.scope),
+            execution_scope=scope,
             dry_run=bool(args.dry_run),
             detect_similar_images=bool(args.similar_images),
             apply_changes=True,
@@ -128,7 +157,9 @@ def main(argv: list[str] | None = None) -> int:
     except OperationCancelledError:
         print("Cancelled", file=sys.stderr)
         return 2
-    except Exception as exc:  # noqa: BLE001
+    except (KeyboardInterrupt, SystemExit):
+        raise  # Always propagate termination signals
+    except Exception as exc:  # Intentionally broad for CLI error handling
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 

@@ -37,7 +37,7 @@ from PySide6.QtWidgets import (
 
 try:
     import qdarktheme  # type: ignore
-except Exception:
+except ImportError:
     qdarktheme = None
 
 from .errors import OperationCancelledError
@@ -93,11 +93,16 @@ TR = {
     "preview_summary": "Önizleme Özeti",
     "sum_total": "Toplam dosya",
     "sum_dupes": "Kopya bulundu",
+    "sum_dupe_groups": "Kopya grup",
     "sum_reclaim": "Kazanılabilir alan",
     "sum_quarantine": "Karantinaya gidecek",
     "sum_organize": "Gruplanacak dosya",
+    "sum_errors": "Hata sayısı",
+    "sum_skipped": "Atlanan dosya",
     "confirm_apply_title": "Uygulama Onayı",
     "confirm_apply_text": "İşlem uygulanacak. Devam etmek istiyor musun?",
+    "summary_dialog_title": "Çalışma Özeti",
+    "summary_preview_done": "Önizleme tamamlandı.",
     "open_quarantine": "Karantina Klasörünü Aç",
     "quarantine_missing": "Karantina klasörü henüz oluşmadı.",
     "open_file_location_failed": "Dosya konumu açılamadı.",
@@ -531,19 +536,28 @@ class MainWindow(QMainWindow):
         preview_box.setLayout(preview_layout)
         self.p_total = QLabel("0")
         self.p_dupes = QLabel("0")
+        self.p_dupe_groups = QLabel("0")
         self.p_reclaim = QLabel("0 B")
         self.p_quarantine = QLabel("0")
         self.p_organize = QLabel("0")
+        self.p_errors = QLabel("0")
+        self.p_skipped = QLabel("0")
         preview_layout.addWidget(QLabel(TR["sum_total"]), 0, 0)
         preview_layout.addWidget(self.p_total, 0, 1)
         preview_layout.addWidget(QLabel(TR["sum_dupes"]), 0, 2)
         preview_layout.addWidget(self.p_dupes, 0, 3)
-        preview_layout.addWidget(QLabel(TR["sum_reclaim"]), 0, 4)
-        preview_layout.addWidget(self.p_reclaim, 0, 5)
+        preview_layout.addWidget(QLabel(TR["sum_dupe_groups"]), 0, 4)
+        preview_layout.addWidget(self.p_dupe_groups, 0, 5)
+        preview_layout.addWidget(QLabel(TR["sum_reclaim"]), 0, 6)
+        preview_layout.addWidget(self.p_reclaim, 0, 7)
         preview_layout.addWidget(QLabel(TR["sum_quarantine"]), 1, 0)
         preview_layout.addWidget(self.p_quarantine, 1, 1)
         preview_layout.addWidget(QLabel(TR["sum_organize"]), 1, 2)
         preview_layout.addWidget(self.p_organize, 1, 3)
+        preview_layout.addWidget(QLabel(TR["sum_errors"]), 1, 4)
+        preview_layout.addWidget(self.p_errors, 1, 5)
+        preview_layout.addWidget(QLabel(TR["sum_skipped"]), 1, 6)
+        preview_layout.addWidget(self.p_skipped, 1, 7)
         root.addWidget(preview_box)
 
         # Tabs
@@ -635,7 +649,10 @@ class MainWindow(QMainWindow):
     def _open_quarantine_folder(self):
         source_text = self.source_edit.text().strip()
         target_text = self.target_edit.text().strip()
-        base = Path(target_text) if target_text else (Path(source_text) if source_text else None)
+        if self.last_result is not None:
+            base = self.last_result.target_path
+        else:
+            base = Path(target_text) if target_text else (Path(source_text) if source_text else None)
         if base is None:
             QMessageBox.information(self, TR["open_quarantine"], TR["quarantine_missing"])
             return
@@ -870,6 +887,14 @@ class MainWindow(QMainWindow):
             self._log(f"ERROR: {err}")
 
         self._set_status(TR["done"])
+        if not self.last_run_apply_changes:
+            self._show_summary_dialog(
+                title=TR["preview_summary"],
+                summary=s,
+                quarantine_count=self.preview_quarantine_estimate,
+                organize_count=self.preview_organize_estimate,
+                include_quarantine=True,
+            )
 
     @Slot()
     def _on_cancelled(self):
@@ -969,6 +994,10 @@ class MainWindow(QMainWindow):
         first = self.dupes_table.item(row, 0)
         if first is None:
             return
+        open_path = first.data(Qt.UserRole + 1)
+        if isinstance(open_path, str) and open_path.strip():
+            self._open_path_in_file_manager(Path(open_path))
+            return
         group_index = first.data(Qt.UserRole)
         if not isinstance(group_index, int):
             return
@@ -1004,13 +1033,19 @@ class MainWindow(QMainWindow):
         if group_index < 0 or group_index >= len(self.preview_duplicate_groups):
             return
         group = self.preview_duplicate_groups[group_index]
-        keep_count = sum(1 for item in group.files if str(item.full_path).lower() in self.protected_duplicate_paths)
+        protected_files = [
+            item for item in group.files
+            if str(item.full_path).lower() in self.protected_duplicate_paths
+        ]
+        keep_count = len(protected_files)
         if keep_count <= 0 and group.files:
             keep_count = 1
+            protected_files = [group.files[0]]
         remove_count = max(0, len(group.files) - keep_count)
+        selected_file = protected_files[0] if protected_files else (group.files[0] if group.files else None)
         keep_text = (
-            str(group.files[0].full_path)
-            if keep_count <= 1 and group.files
+            str(selected_file.full_path)
+            if keep_count <= 1 and selected_file is not None
             else f"{keep_count} dosya korunuyor"
         )
         values = [group.sha256_hash[:12] + "..", f"x{remove_count}", format_size(group.size_bytes), keep_text]
@@ -1019,6 +1054,7 @@ class MainWindow(QMainWindow):
             item.setText(val)
             if c == 0:
                 item.setData(Qt.UserRole, group_index)
+                item.setData(Qt.UserRole + 1, str(selected_file.full_path) if selected_file is not None else "")
             if c in (0, 1, 2):
                 item.setTextAlignment(Qt.AlignVCenter | (Qt.AlignRight if c == 2 else Qt.AlignLeft))
             self.dupes_table.setItem(row, c, item)
@@ -1042,15 +1078,55 @@ class MainWindow(QMainWindow):
         if summary is None:
             self.p_total.setText("0")
             self.p_dupes.setText("0")
+            self.p_dupe_groups.setText("0")
             self.p_reclaim.setText("0 B")
             self.p_quarantine.setText("0")
             self.p_organize.setText("0")
+            self.p_errors.setText("0")
+            self.p_skipped.setText("0")
             return
         self.p_total.setText(str(summary.total_files_scanned))
         self.p_dupes.setText(str(summary.duplicate_files_found))
+        self.p_dupe_groups.setText(str(summary.duplicate_group_count))
         self.p_reclaim.setText(format_size(summary.duplicate_bytes_reclaimable))
         self.p_quarantine.setText(str(quarantine_count))
         self.p_organize.setText(str(organize_count))
+        self.p_errors.setText(str(len(summary.errors)))
+        self.p_skipped.setText(str(len(summary.skipped_files)))
+
+    def _summary_text(self, summary, *, quarantine_count: int | None, organize_count: int | None) -> str:
+        lines = []
+        lines.append(f"{TR['sum_total']}: {summary.total_files_scanned}")
+        lines.append(f"{TR['sum_dupe_groups']}: {summary.duplicate_group_count}")
+        lines.append(f"{TR['sum_dupes']}: {summary.duplicate_files_found}")
+        lines.append(f"{TR['sum_reclaim']}: {format_size(summary.duplicate_bytes_reclaimable)}")
+        if quarantine_count is not None:
+            lines.append(f"{TR['sum_quarantine']}: {quarantine_count}")
+        if organize_count is not None:
+            lines.append(f"{TR['sum_organize']}: {organize_count}")
+        lines.append(f"{TR['sum_errors']}: {len(summary.errors)}")
+        lines.append(f"{TR['sum_skipped']}: {len(summary.skipped_files)}")
+        return "\n".join(lines)
+
+    def _show_summary_dialog(
+        self,
+        *,
+        title: str,
+        summary,
+        quarantine_count: int | None,
+        organize_count: int | None,
+        include_quarantine: bool,
+    ) -> None:
+        text = self._summary_text(
+            summary,
+            quarantine_count=(quarantine_count if include_quarantine else None),
+            organize_count=organize_count,
+        )
+        QMessageBox.information(
+            self,
+            title or TR["summary_dialog_title"],
+            f"{TR['summary_preview_done']}\n\n{text}",
+        )
 
     def _confirm_apply(self, scope: ExecutionScope) -> bool:
         lines = [TR["confirm_apply_text"], ""]
@@ -1062,11 +1138,13 @@ class MainWindow(QMainWindow):
             s = self.last_result.summary
             lines.append("")
             lines.append("Son onizleme ozeti:")
-            lines.append(f"- Toplam dosya: {s.total_files_scanned}")
-            lines.append(f"- Kopya: {s.duplicate_files_found}")
-            lines.append(f"- Kazanim: {format_size(s.duplicate_bytes_reclaimable)}")
-            lines.append(f"- Karantina: {self.preview_quarantine_estimate}")
-            lines.append(f"- Gruplanacak: {self.preview_organize_estimate}")
+            lines.append(
+                self._summary_text(
+                    s,
+                    quarantine_count=self.preview_quarantine_estimate,
+                    organize_count=self.preview_organize_estimate,
+                )
+            )
         else:
             lines.append("")
             lines.append("Onizleme sonucu bulunamadi.")
