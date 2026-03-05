@@ -36,10 +36,17 @@ SIMILAR_HASH_BITS = 64
 SIMILAR_BAND_BITS = 16
 SIMILAR_BAND_COUNT = SIMILAR_HASH_BITS // SIMILAR_BAND_BITS
 SIMILAR_MAX_PAIRS = 2_000_000  # hard cap to avoid runaway on huge libraries
-_SIMILAR_UNAVAILABLE_LOGGED = False
 
 
 class DuplicateDetector:
+    def __init__(self) -> None:
+        """Initialize DuplicateDetector with instance state.
+        
+        Tracks whether Pillow unavailability warning has been logged
+        to avoid duplicate log messages.
+        """
+        self._similar_unavailable_logged = False
+
     @staticmethod
     def is_similar_supported() -> bool:
         return Image is not None
@@ -195,10 +202,9 @@ class DuplicateDetector:
             return []
 
         if Image is None:
-            global _SIMILAR_UNAVAILABLE_LOGGED
-            if log and not _SIMILAR_UNAVAILABLE_LOGGED:
+            if log and not self._similar_unavailable_logged:
                 log("Similar image detection skipped: Pillow is not installed.")
-                _SIMILAR_UNAVAILABLE_LOGGED = True
+                self._similar_unavailable_logged = True
             return []
 
         # 1) compute real perceptual hashes (dHash) from decoded image pixels
