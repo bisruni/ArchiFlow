@@ -40,7 +40,7 @@ Release date: 2026-03-06
 ## Breaking Changes / Notes
 
 - Legacy .NET flow is no longer the primary runtime path.
-- Primary runtime and tooling are Python-based (`main.py`, `filegrouper` package).
+- Primary runtime and tooling are Python-based (`main.py`, `archiflow` package).
 
 ## Upgrade Path
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.cli import main
+from archiflow.cli import main
 
 WORKFLOW_MATRIX = list(
     product(
@@ -62,7 +62,7 @@ def test_e2e_complete_workflow_matrix(
 
     if includes_dedupe and dedupe == "quarantine" and not dry_run:
         quarantine_base = source if scope == "dedupe_only" else target
-        assert any((quarantine_base / ".filegrouper_quarantine").rglob("*.txt"))
+        assert any((quarantine_base / ".archiflow_quarantine").rglob("*.txt"))
 
 
 @pytest.mark.parametrize("duplicate_count", list(range(0, 10)))

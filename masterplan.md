@@ -50,7 +50,7 @@ Tüm proje için solid foundation oluştur
 - [x] File + console handlers
 - [x] Rotating file handler
 - [x] Structured logging format
-- [x] **Çıktı**: `filegrouper/logger.py` + config
+- [x] **Çıktı**: `archiflow/logger.py` + config
 
 #### 1.4 - Quality Assurance Tools (2-4 saat)
 - [x] Black (code formatter) setup
@@ -364,7 +364,7 @@ ArchiFlow-v1.0.0/
 ├── EXAMPLES/
 ├── CHANGELOG.md
 ├── LICENSE
-└── filegrouper/ (production code)
+└── archiflow/ (production code)
 ```
 
 ### 7.2 - Marketing Materials

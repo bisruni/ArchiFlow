@@ -30,7 +30,7 @@ Output:
 
 ```bash
 python -m pip install --force-reinstall dist/*.whl
-filegrouper --help
+archiflow --help
 ```
 
 ## Upload Preparation

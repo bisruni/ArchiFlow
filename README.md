@@ -49,8 +49,8 @@ python3 main.py apply \
 ## Safety Model
 
 - Deletion is never the default path.
-- Quarantine location: `TARGET/.filegrouper_quarantine/<timestamp>/`
-- Every mutation is journaled in `.filegrouper/transactions/`
+- Quarantine location: `TARGET/.archiflow_quarantine/<timestamp>/`
+- Every mutation is journaled in `.archiflow/transactions/`
 - Undo works from journal entries (reverse order, partial-failure tolerant).
 - Similar-image detection is report-only and disabled by default.
 

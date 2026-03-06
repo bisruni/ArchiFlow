@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.errors import OperationCancelledError
-from filegrouper.models import (
+from archiflow.errors import OperationCancelledError
+from archiflow.models import (
     DedupeMode,
     DuplicateGroup,
     ExecutionScope,
@@ -18,8 +18,8 @@ from filegrouper.models import (
     TransactionLifecycleStatus,
     TransactionStatus,
 )
-from filegrouper.pause_controller import PauseController
-from filegrouper.pipeline import FileGrouperEngine, RunOptions
+from archiflow.pause_controller import PauseController
+from archiflow.pipeline import ArchiFlowEngine, RunOptions
 
 
 def test_pipeline_preview_and_apply_quarantine_with_undo(tmp_path: Path) -> None:
@@ -32,7 +32,7 @@ def test_pipeline_preview_and_apply_quarantine_with_undo(tmp_path: Path) -> None
     (source / "b.txt").write_text("dup", encoding="utf-8")
     (source / "c.txt").write_text("solo", encoding="utf-8")
 
-    engine = FileGrouperEngine()
+    engine = ArchiFlowEngine()
     cancel_event = threading.Event()
     pause_controller = PauseController()
 
@@ -81,7 +81,7 @@ def test_pipeline_preview_and_apply_quarantine_with_undo(tmp_path: Path) -> None
 
     assert applied.summary.duplicates_quarantined == 1
     assert applied.transaction_file_path is not None and applied.transaction_file_path.exists()
-    assert any((target / ".filegrouper_quarantine").rglob("*.txt"))
+    assert any((target / ".archiflow_quarantine").rglob("*.txt"))
 
     undo_summary = engine.transaction_service.undo_last_transaction(target)
     assert undo_summary.duplicates_quarantined == 1
@@ -117,7 +117,7 @@ def test_pipeline_cancelled_apply_persists_checkpoint_and_is_recoverable(
         files=source_files,
     )
 
-    engine = FileGrouperEngine()
+    engine = ArchiFlowEngine()
     cancel_event = threading.Event()
 
     def fake_scan(*_args, **_kwargs) -> list[FileRecord]:
@@ -181,7 +181,7 @@ def test_pipeline_group_only_apply_uses_streaming_scanner(tmp_path: Path, monkey
     for index in range(5):
         (source / f"f_{index}.txt").write_text(f"data-{index}", encoding="utf-8")
 
-    engine = FileGrouperEngine()
+    engine = ArchiFlowEngine()
 
     def fail_scan(*_args, **_kwargs) -> list[FileRecord]:
         raise AssertionError("scan() should not be called for group-only apply path")

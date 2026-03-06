@@ -3,11 +3,11 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from filegrouper.duplicate_detector import DuplicateDetector
-from filegrouper.hash_cache import HashCacheService
-from filegrouper.models import OperationStage
-from filegrouper.pause_controller import PauseController
-from filegrouper.scanner import FileScanner
+from archiflow.duplicate_detector import DuplicateDetector
+from archiflow.hash_cache import HashCacheService
+from archiflow.models import OperationStage
+from archiflow.pause_controller import PauseController
+from archiflow.scanner import FileScanner
 
 
 def test_duplicate_detector_finds_only_exact_duplicates(tmp_path: Path) -> None:
@@ -21,7 +21,7 @@ def test_duplicate_detector_finds_only_exact_duplicates(tmp_path: Path) -> None:
 
     files = FileScanner().scan(source)
     detector = DuplicateDetector()
-    cache = HashCacheService(tmp_path / ".filegrouper" / "cache" / "hash-cache.json")
+    cache = HashCacheService(tmp_path / ".archiflow" / "cache" / "hash-cache.json")
 
     stages: list[OperationStage] = []
 

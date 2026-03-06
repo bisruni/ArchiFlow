@@ -11,9 +11,9 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Mapping
 
-from filegrouper.models import DedupeMode, ExecutionScope, OrganizationMode, ScanFilterOptions
-from filegrouper.pause_controller import PauseController
-from filegrouper.pipeline import FileGrouperEngine, RunOptions
+from archiflow.models import DedupeMode, ExecutionScope, OrganizationMode, ScanFilterOptions
+from archiflow.pause_controller import PauseController
+from archiflow.pipeline import ArchiFlowEngine, RunOptions
 
 try:
     import resource
@@ -149,7 +149,7 @@ def run_preview_benchmark(
     summary_payload: dict[str, Any] | None = None
 
     for _ in range(iterations):
-        engine = FileGrouperEngine()
+        engine = ArchiFlowEngine()
         options = RunOptions(
             source_path=source,
             target_path=None,

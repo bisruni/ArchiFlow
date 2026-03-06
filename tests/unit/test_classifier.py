@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.classifier import classify, folder_name, get_season
-from filegrouper.models import FileCategory
+from archiflow.classifier import classify, folder_name, get_season
+from archiflow.models import FileCategory
 
 
 def test_classify_known_extensions() -> None:

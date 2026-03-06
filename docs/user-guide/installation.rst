@@ -18,7 +18,7 @@ Adim Adim Kurulum
 
 .. code-block:: bash
 
-   cd /path/to/FileGrouper
+   cd /path/to/ArchiFlow
    python3 -m venv .venv
    source .venv/bin/activate
    python3 -m pip install -r requirements.txt

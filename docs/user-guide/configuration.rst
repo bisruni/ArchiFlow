@@ -21,7 +21,7 @@ Kalici konfigurasyon dosyasi:
 
 .. code-block:: text
 
-   ./.filegrouper/config.yaml
+   ./.archiflow/config.yaml
 
 Temel alanlar:
 
@@ -56,7 +56,7 @@ Log Dosyasi Varsayilani:
 
 .. code-block:: text
 
-   ./.filegrouper/logs/archiflow.log
+   ./.archiflow/logs/archiflow.log
 
 Profil Konfigurasyonu
 ---------------------
@@ -70,7 +70,7 @@ Platforma gore varsayilan profil yolu:
 - Windows: `%APPDATA%\\ArchiFlow\\profiles.json`
 
 Not:
-Eski `FileGrouper/profiles.json` yolu varsa geriye donuk uyumluluk icin kullanilir.
+Eski `ArchiFlow/profiles.json` yolu varsa geriye donuk uyumluluk icin kullanilir.
 
 Islem Kayitlari ve Rapor Klasorleri
 -----------------------------------
@@ -79,16 +79,16 @@ Transaction kayitlari:
 
 .. code-block:: text
 
-   <target>/.filegrouper/transactions/
+   <target>/.archiflow/transactions/
 
 Otomatik raporlar:
 
 .. code-block:: text
 
-   <target>/.filegrouper/reports/
+   <target>/.archiflow/reports/
 
 Karantina:
 
 .. code-block:: text
 
-   <target>/.filegrouper_quarantine/<timestamp>/
+   <target>/.archiflow_quarantine/<timestamp>/

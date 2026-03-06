@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
-from filegrouper.hash_cache import HashCacheService
+from archiflow.hash_cache import HashCacheService
 
 
 def _last_write_utc(path: Path) -> datetime:
@@ -17,7 +17,7 @@ def _last_write_utc(path: Path) -> datetime:
 def test_hash_cache_reuses_cached_sha256(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.txt"
     file_path.write_text("alpha", encoding="utf-8")
-    cache = HashCacheService(tmp_path / ".filegrouper" / "cache" / "hash-cache.json")
+    cache = HashCacheService(tmp_path / ".archiflow" / "cache" / "hash-cache.json")
 
     calls = 0
 
@@ -47,7 +47,7 @@ def test_hash_cache_reuses_cached_sha256(tmp_path: Path) -> None:
 def test_hash_cache_invalidates_when_size_or_mtime_changes(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.txt"
     file_path.write_text("alpha", encoding="utf-8")
-    cache = HashCacheService(tmp_path / ".filegrouper" / "cache" / "hash-cache.json")
+    cache = HashCacheService(tmp_path / ".archiflow" / "cache" / "hash-cache.json")
 
     calls = 0
 
@@ -75,7 +75,7 @@ def test_hash_cache_invalidates_when_size_or_mtime_changes(tmp_path: Path) -> No
     assert first == "hash-1"
     assert second == "hash-2"
     assert calls == 2
-    payload = json.loads((tmp_path / ".filegrouper" / "cache" / "hash-cache.json").read_text(encoding="utf-8"))
+    payload = json.loads((tmp_path / ".archiflow" / "cache" / "hash-cache.json").read_text(encoding="utf-8"))
     assert len(payload) == 1
     assert cache.get_stats()["invalidations"] >= 1
 
@@ -86,7 +86,7 @@ def test_hash_cache_supports_legacy_key_format(tmp_path: Path) -> None:
     snapshot = _last_write_utc(file_path)
     ticks = int(snapshot.timestamp() * 1_000_000)
 
-    cache_path = tmp_path / ".filegrouper" / "cache" / "hash-cache.json"
+    cache_path = tmp_path / ".archiflow" / "cache" / "hash-cache.json"
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     legacy_key = str(file_path.resolve()).lower()
     cache_path.write_text(
@@ -108,7 +108,7 @@ def test_hash_cache_supports_legacy_key_format(tmp_path: Path) -> None:
 def test_hash_cache_thread_safe_single_compute_for_same_sha(tmp_path: Path) -> None:
     file_path = tmp_path / "race.bin"
     file_path.write_bytes(b"thread-safe-test")
-    cache = HashCacheService(tmp_path / ".filegrouper" / "cache" / "hash-cache.json")
+    cache = HashCacheService(tmp_path / ".archiflow" / "cache" / "hash-cache.json")
 
     start_event = threading.Event()
     calls = 0
@@ -142,7 +142,7 @@ def test_hash_cache_thread_safe_single_compute_for_same_sha(tmp_path: Path) -> N
 def test_hash_cache_thread_safe_single_compute_for_quick_signature(tmp_path: Path) -> None:
     file_path = tmp_path / "quick-race.bin"
     file_path.write_bytes(b"quick-thread-safe-test")
-    cache = HashCacheService(tmp_path / ".filegrouper" / "cache" / "hash-cache.json")
+    cache = HashCacheService(tmp_path / ".archiflow" / "cache" / "hash-cache.json")
 
     start_event = threading.Event()
     calls = 0
@@ -182,7 +182,7 @@ def test_hash_cache_stress_parallel_reads_writes_produce_valid_json(tmp_path: Pa
         item.write_bytes(f"payload-{index}".encode("utf-8"))
         files.append(item)
 
-    cache_path = tmp_path / ".filegrouper" / "cache" / "hash-cache.json"
+    cache_path = tmp_path / ".archiflow" / "cache" / "hash-cache.json"
     cache = HashCacheService(cache_path)
     start_event = threading.Event()
 
@@ -217,7 +217,7 @@ def test_hash_cache_stress_parallel_reads_writes_produce_valid_json(tmp_path: Pa
 
 
 def test_hash_cache_lru_eviction_keeps_recent_entries(tmp_path: Path) -> None:
-    cache_path = tmp_path / ".filegrouper" / "cache" / "hash-cache.json"
+    cache_path = tmp_path / ".archiflow" / "cache" / "hash-cache.json"
     cache = HashCacheService(cache_path, max_entries=2)
     files = [tmp_path / f"lru-{idx}.txt" for idx in range(3)]
     for idx, item in enumerate(files):
@@ -240,7 +240,7 @@ def test_hash_cache_lru_eviction_keeps_recent_entries(tmp_path: Path) -> None:
 def test_hash_cache_exposes_hit_miss_stats(tmp_path: Path) -> None:
     file_path = tmp_path / "stats.txt"
     file_path.write_text("stats", encoding="utf-8")
-    cache = HashCacheService(tmp_path / ".filegrouper" / "cache" / "hash-cache.json", max_entries=10)
+    cache = HashCacheService(tmp_path / ".archiflow" / "cache" / "hash-cache.json", max_entries=10)
 
     cache.get_or_compute_sha256(file_path, file_path.stat().st_size, _last_write_utc(file_path), lambda: "STAT")
     cache.get_or_compute_sha256(file_path, file_path.stat().st_size, _last_write_utc(file_path), lambda: "STAT2")

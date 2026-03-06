@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import filegrouper.scanner as scanner_module
-from filegrouper.scanner import FileScanner
+import archiflow.scanner as scanner_module
+from archiflow.scanner import FileScanner
 
 
 def test_scanner_skips_broken_symlink_without_crash(tmp_path: Path) -> None:

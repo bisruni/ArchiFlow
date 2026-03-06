@@ -9,7 +9,7 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from filegrouper.models import ExecutionScope
+from archiflow.models import ExecutionScope
 from tests.performance.perf_utils import compare_with_baseline, generate_perf_dataset, run_preview_benchmark, save_json
 
 

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.config_service import AppConfig, AppConfigService
-from filegrouper.models import DedupeMode, ExecutionScope, OrganizationMode
+from archiflow.config_service import AppConfig, AppConfigService
+from archiflow.models import DedupeMode, ExecutionScope, OrganizationMode
 
 
 def test_config_service_creates_seed_config_file(tmp_path: Path) -> None:

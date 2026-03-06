@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-APP_STATE_DIRNAME = ".filegrouper"
-QUARANTINE_DIRNAME = ".filegrouper_quarantine"
+APP_STATE_DIRNAME = ".archiflow"
+QUARANTINE_DIRNAME = ".archiflow_quarantine"
 LEGACY_QUARANTINE_DIRNAME = "duplicates_quarantine"
 CACHE_DIRNAME = "cache"
 TRANSACTIONS_DIRNAME = "transactions"

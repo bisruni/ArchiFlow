@@ -14,10 +14,10 @@ python3 -m pip install -e .[dev]
 ## Kod Standartlari
 
 ```bash
-black filegrouper main.py
-isort filegrouper main.py
-flake8 filegrouper main.py
-mypy filegrouper
+black archiflow main.py
+isort archiflow main.py
+flake8 archiflow main.py
+mypy archiflow
 ```
 
 ## Test

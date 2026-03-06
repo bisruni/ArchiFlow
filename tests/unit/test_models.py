@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from filegrouper.models import DedupeMode, ExecutionScope, OperationProfile, OrganizationMode, ScanFilterOptions
+from archiflow.models import DedupeMode, ExecutionScope, OperationProfile, OrganizationMode, ScanFilterOptions
 
 
 def test_operation_profile_roundtrip() -> None:

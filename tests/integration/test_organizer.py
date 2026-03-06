@@ -4,8 +4,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from filegrouper.duplicate_detector import DuplicateDetector
-from filegrouper.models import (
+from archiflow.duplicate_detector import DuplicateDetector
+from archiflow.models import (
     DedupeMode,
     OperationSummary,
     OperationTransaction,
@@ -13,10 +13,10 @@ from filegrouper.models import (
     TransactionAction,
     TransactionStatus,
 )
-from filegrouper.organizer import FileOrganizer
-from filegrouper.pause_controller import PauseController
-from filegrouper.scanner import FileScanner
-from filegrouper.transaction_service import TransactionService
+from archiflow.organizer import FileOrganizer
+from archiflow.pause_controller import PauseController
+from archiflow.scanner import FileScanner
+from archiflow.transaction_service import TransactionService
 
 
 def test_organizer_quarantine_flow_writes_transaction(tmp_path: Path) -> None:
@@ -75,7 +75,7 @@ def test_organizer_quarantine_flow_writes_transaction(tmp_path: Path) -> None:
     assert summary.duplicates_quarantined == 1
     assert not removed[0].full_path.exists()
 
-    quarantined_files = list((target / ".filegrouper_quarantine").rglob("*.txt"))
+    quarantined_files = list((target / ".archiflow_quarantine").rglob("*.txt"))
     assert len(quarantined_files) == 1
 
     saved_transaction = tx_service.load(tx_path)

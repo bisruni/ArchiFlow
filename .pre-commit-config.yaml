@@ -28,7 +28,7 @@ repos:
     rev: v1.11.2
     hooks:
       - id: mypy
-        args: ["filegrouper"]
+        args: ["archiflow"]
 
   - repo: local
     hooks:
@@ -37,4 +37,4 @@ repos:
         entry: pylint
         language: system
         pass_filenames: false
-        args: ["filegrouper"]
+        args: ["archiflow"]

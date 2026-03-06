@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper import logger as logger_module
-from filegrouper.logger import LOGGER_NAME, configure_logging, get_active_log_file, get_logger
+from archiflow import logger as logger_module
+from archiflow.logger import LOGGER_NAME, configure_logging, get_active_log_file, get_logger
 
 
 @pytest.fixture(autouse=True)

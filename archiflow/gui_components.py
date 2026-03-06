@@ -28,7 +28,7 @@ from .errors import OperationCancelledError
 from .gui_texts import TR
 from .models import DuplicateGroup
 from .pause_controller import PauseController
-from .pipeline import FileGrouperEngine, RunOptions
+from .pipeline import ArchiFlowEngine, RunOptions
 from .utils import format_size
 
 
@@ -220,7 +220,7 @@ class Worker(QObject):
 
     def __init__(
         self,
-        engine: FileGrouperEngine,
+        engine: ArchiFlowEngine,
         options: RunOptions,
         cancel_event: threading.Event,
         pause_controller: PauseController,

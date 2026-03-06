@@ -17,8 +17,8 @@ dist/
 *.spec
 *.egg-info/
 *.log
-.filegrouper/
-.filegrouper_quarantine/
+.archiflow/
+.archiflow_quarantine/
 docs/_build/
 docs/api/generated/
 .coverage

@@ -102,7 +102,7 @@ def default_profile_path() -> Path:
     else:
         root = Path(os.getenv("XDG_CONFIG_HOME", str(Path.home() / ".config")))
 
-    legacy = root / "FileGrouper" / "profiles.json"
+    legacy = root / "ArchiFlow" / "profiles.json"
     if legacy.exists():
         return legacy
     return root / "ArchiFlow" / "profiles.json"

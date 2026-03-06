@@ -16,45 +16,45 @@ ArchiFlow moduler bir servis yapisi kullanir:
 Katman Sorumluluklari
 ---------------------
 
-`filegrouper.scanner`
+`archiflow.scanner`
 ~~~~~~~~~~~~~~~~~~~~~
 
 - Dosya sistemini gezer.
 - Filtreleri uygular.
 - `FileRecord` listesi uretir.
 
-`filegrouper.duplicate_detector`
+`archiflow.duplicate_detector`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Kesin kopya tespiti yapar.
 - Opsiyonel benzer goruntu analizi calistirir.
 
-`filegrouper.organizer`
+`archiflow.organizer`
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 - Kopya dosyalari secilen moda gore isler (`quarantine`, `delete`).
 - Gruplama modunda dosyalari kategori/yil/ay yapisina tasir veya kopyalar.
 - Her operasyonu transaction journal ile kaydeder.
 
-`filegrouper.pipeline`
+`archiflow.pipeline`
 ~~~~~~~~~~~~~~~~~~~~~~
 
 - Tum servisleri sirali sekilde baglar.
 - Run lifecycle yonetimi yapar.
 - Rapor uretimini tetikler.
 
-`filegrouper.transaction_service`
+`archiflow.transaction_service`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Transaction dosyalarini kaydeder/yukler.
 - Undo akisini ters sirada uygular.
 
-`filegrouper.hash_cache`
+`archiflow.hash_cache`
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Hash hesaplarini path/size/mtime anahtariyla cache'ler.
 
-`filegrouper.gui` ve `filegrouper.cli`
+`archiflow.gui` ve `archiflow.cli`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Kullanici etkileseimini saglar.

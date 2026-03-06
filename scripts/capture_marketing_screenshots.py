@@ -12,8 +12,8 @@ if __package__ in {None, ""}:
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
-from filegrouper.gui import MainWindow, qdarktheme
-from filegrouper.gui_theme import apply_gui_theme
+from archiflow.gui import MainWindow, qdarktheme
+from archiflow.gui_theme import apply_gui_theme
 
 
 def _render_and_save(window: MainWindow, output: Path) -> None:

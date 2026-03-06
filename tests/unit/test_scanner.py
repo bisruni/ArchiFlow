@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from filegrouper.errors import OperationCancelledError
-from filegrouper.models import OperationStage, ScanFilterOptions
-from filegrouper.scanner import FileScanner
+from archiflow.errors import OperationCancelledError
+from archiflow.models import OperationStage, ScanFilterOptions
+from archiflow.scanner import FileScanner
 
 
 def test_scanner_skips_internal_directories(tmp_path: Path) -> None:
@@ -15,11 +15,11 @@ def test_scanner_skips_internal_directories(tmp_path: Path) -> None:
     source.mkdir()
     (source / "normal.txt").write_text("ok", encoding="utf-8")
 
-    internal = source / ".filegrouper"
+    internal = source / ".archiflow"
     internal.mkdir()
     (internal / "state.json").write_text("{}", encoding="utf-8")
 
-    quarantine = source / ".filegrouper_quarantine"
+    quarantine = source / ".archiflow_quarantine"
     quarantine.mkdir()
     (quarantine / "q.txt").write_text("q", encoding="utf-8")
 

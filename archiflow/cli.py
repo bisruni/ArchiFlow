@@ -14,7 +14,7 @@ from .errors import OperationCancelledError
 from .logger import configure_logging, get_logger
 from .models import DedupeMode, ExecutionScope, OperationProfile, OperationProgress, OrganizationMode, ScanFilterOptions
 from .pause_controller import PauseController
-from .pipeline import FileGrouperEngine, RunOptions, RunResult
+from .pipeline import ArchiFlowEngine, RunOptions, RunResult
 from .profile_service import ProfileService
 from .utils import format_size
 from .validators import (
@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         launch_gui()
         return 0
 
-    engine = FileGrouperEngine()
+    engine = ArchiFlowEngine()
     cancel_event = threading.Event()
     pause_controller = PauseController()
     try:

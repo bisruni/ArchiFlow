@@ -71,7 +71,7 @@ class RunResult:
     auto_report_csv_path: Path | None
 
 
-class FileGrouperEngine:
+class ArchiFlowEngine:
     """Coordinate scanner, detector, organizer and report exporter services."""
 
     def __init__(self) -> None:

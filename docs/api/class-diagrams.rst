@@ -8,7 +8,7 @@ Core Pipeline Diagram
 
 .. code-block:: text
 
-   FileGrouperEngine
+   ArchiFlowEngine
       |
       +-- FileScanner
       +-- DuplicateDetector
@@ -54,7 +54,7 @@ Enum Model Diagram
 
 .. code-block:: text
 
-   Enum Types (filegrouper.models)
+   Enum Types (archiflow.models)
    - FileCategory
    - OrganizationMode
    - DedupeMode

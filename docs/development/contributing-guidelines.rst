@@ -20,10 +20,10 @@ PR oncesi asagidaki komutlarin temiz gecmesi beklenir:
 
 .. code-block:: bash
 
-   black --check filegrouper tests main.py
-   isort --check-only filegrouper tests main.py
-   flake8 filegrouper tests main.py
-   mypy filegrouper
+   black --check archiflow tests main.py
+   isort --check-only archiflow tests main.py
+   flake8 archiflow tests main.py
+   mypy archiflow
    pytest -q
 
 Tek komut akisi:

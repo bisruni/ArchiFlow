@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper import logger as logger_module
-from filegrouper.cli import main
-from filegrouper.config_service import AppConfig, AppConfigService
-from filegrouper.models import DedupeMode, ExecutionScope, OperationProfile, OrganizationMode, ScanFilterOptions
-from filegrouper.profile_service import ProfileService
+from archiflow import logger as logger_module
+from archiflow.cli import main
+from archiflow.config_service import AppConfig, AppConfigService
+from archiflow.models import DedupeMode, ExecutionScope, OperationProfile, OrganizationMode, ScanFilterOptions
+from archiflow.profile_service import ProfileService
 
 
 @pytest.fixture(autouse=True)

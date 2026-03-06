@@ -10,7 +10,7 @@ if __package__ in {None, ""}:
 
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from filegrouper.duplicate_detector import compute_sha256
+from archiflow.duplicate_detector import compute_sha256
 
 
 def _collect_files(source: Path, limit: int) -> list[Path]:

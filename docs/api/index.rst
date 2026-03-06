@@ -1,7 +1,7 @@
 API Referansi
 =============
 
-Bu bolum ``filegrouper`` paketinin API dokumantasyonunu otomatik olarak uretir.
+Bu bolum ``archiflow`` paketinin API dokumantasyonunu otomatik olarak uretir.
 
 .. toctree::
    :maxdepth: 2
@@ -12,24 +12,24 @@ Bu bolum ``filegrouper`` paketinin API dokumantasyonunu otomatik olarak uretir.
 .. autosummary::
    :toctree: generated
 
-   filegrouper.classifier
-   filegrouper.cli
-   filegrouper.constants
-   filegrouper.duplicate_detector
-   filegrouper.errors
-   filegrouper.gui
-   filegrouper.gui_components
-   filegrouper.gui_texts
-   filegrouper.gui_theme
-   filegrouper.hash_cache
-   filegrouper.logger
-   filegrouper.models
-   filegrouper.organizer
-   filegrouper.pause_controller
-   filegrouper.pipeline
-   filegrouper.profile_service
-   filegrouper.report_exporter
-   filegrouper.scanner
-   filegrouper.transaction_service
-   filegrouper.utils
-   filegrouper.validators
+   archiflow.classifier
+   archiflow.cli
+   archiflow.constants
+   archiflow.duplicate_detector
+   archiflow.errors
+   archiflow.gui
+   archiflow.gui_components
+   archiflow.gui_texts
+   archiflow.gui_theme
+   archiflow.hash_cache
+   archiflow.logger
+   archiflow.models
+   archiflow.organizer
+   archiflow.pause_controller
+   archiflow.pipeline
+   archiflow.profile_service
+   archiflow.report_exporter
+   archiflow.scanner
+   archiflow.transaction_service
+   archiflow.utils
+   archiflow.validators

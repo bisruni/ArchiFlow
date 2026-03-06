@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.errors import ValidationError
-from filegrouper.models import DedupeMode, ExecutionScope, OrganizationMode
-from filegrouper.validators import (
+from archiflow.errors import ValidationError
+from archiflow.models import DedupeMode, ExecutionScope, OrganizationMode
+from archiflow.validators import (
     validate_dedupe_mode,
     validate_organization_mode,
     validate_paths,

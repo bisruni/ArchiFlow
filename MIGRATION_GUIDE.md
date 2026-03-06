@@ -17,12 +17,12 @@ New approach:
 ## 2. Naming Migration
 
 - Project/app naming is standardized as `ArchiFlow`.
-- Python package/CLI entry point remains `filegrouper` for compatibility.
+- Python package/CLI entry point remains `archiflow` for compatibility.
 
 ## 3. Config Migration
 
 New default config path:
-- `./.filegrouper/config.yaml`
+- `./.archiflow/config.yaml`
 
 Recommended:
 1. Start once to auto-create defaults.
@@ -41,7 +41,7 @@ Behavior in 1.0.0:
 ## 5. Transaction and Undo Migration
 
 1.0.0 introduces stronger transaction journaling:
-- Journal location: `TARGET/.filegrouper/transactions/`
+- Journal location: `TARGET/.archiflow/transactions/`
 - Undo operates from latest transaction log.
 
 Action:
@@ -50,8 +50,8 @@ Action:
 ## 6. Reporting Migration
 
 Automatic reports:
-- `TARGET/.filegrouper/reports/*.json`
-- `TARGET/.filegrouper/reports/*.csv`
+- `TARGET/.archiflow/reports/*.json`
+- `TARGET/.archiflow/reports/*.csv`
 
 If you had custom report parsing, update to 1.0.0 summary/field layout.
 

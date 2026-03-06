@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "filegrouper"
+name = "archiflow"
 version = "1.0.0"
 description = "Organize and deduplicate files on external drives with ease"
 readme = "README.md"
@@ -56,16 +56,16 @@ release = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/filegrouper"
-Documentation = "https://filegrouper.readthedocs.io"
-Repository = "https://github.com/yourusername/filegrouper.git"
-"Bug Tracker" = "https://github.com/yourusername/filegrouper/issues"
+Homepage = "https://github.com/yourusername/archiflow"
+Documentation = "https://archiflow.readthedocs.io"
+Repository = "https://github.com/yourusername/archiflow.git"
+"Bug Tracker" = "https://github.com/yourusername/archiflow/issues"
 
 [project.scripts]
-filegrouper = "filegrouper.cli:main"
+archiflow = "archiflow.cli:main"
 
 [tool.setuptools]
-packages = ["filegrouper"]
+packages = ["archiflow"]
 
 [tool.black]
 line-length = 120
@@ -86,7 +86,7 @@ exclude = '''
 profile = "black"
 line_length = 120
 skip_gitignore = true
-known_first_party = ["filegrouper"]
+known_first_party = ["archiflow"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -107,7 +107,7 @@ python_files = ["test_*.py", "*_test.py"]
 addopts = """
     --strict-markers
     --tb=short
-    --cov=filegrouper
+    --cov=archiflow
     --cov-report=html
     --cov-report=term-missing
     --cov-report=xml
@@ -120,15 +120,15 @@ markers = [
 
 [tool.coverage.run]
 branch = false
-source = ["filegrouper"]
+source = ["archiflow"]
 omit = [
     "*/tests/*",
     "*/test_*.py",
     "*/__main__.py",
-    "filegrouper/gui.py",
-    "filegrouper/gui_components.py",
-    "filegrouper/gui_texts.py",
-    "filegrouper/gui_theme.py",
+    "archiflow/gui.py",
+    "archiflow/gui_components.py",
+    "archiflow/gui_texts.py",
+    "archiflow/gui_theme.py",
 ]
 
 [tool.coverage.report]

@@ -3,14 +3,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from filegrouper.models import (
+from archiflow.models import (
     OperationTransaction,
     TransactionAction,
     TransactionEntry,
     TransactionLifecycleStatus,
     TransactionStatus,
 )
-from filegrouper.transaction_service import TransactionService
+from archiflow.transaction_service import TransactionService
 
 
 def test_transaction_service_undo_reverses_done_entries_and_skips_others(tmp_path: Path) -> None:
@@ -31,7 +31,7 @@ def test_transaction_service_undo_reverses_done_entries_and_skips_others(tmp_pat
     copied_dest.write_text("copy-dst", encoding="utf-8")
 
     quarantine_source = source_root / "dup.txt"
-    quarantine_dest = target_root / ".filegrouper_quarantine" / "dup.txt"
+    quarantine_dest = target_root / ".archiflow_quarantine" / "dup.txt"
     quarantine_dest.parent.mkdir(parents=True)
     quarantine_dest.write_text("dup", encoding="utf-8")
 
@@ -107,7 +107,7 @@ def test_transaction_service_recover_interrupted_transactions_rolls_back_and_mar
     target_root.mkdir()
 
     source_path = source_root / "dup.txt"
-    destination_path = target_root / ".filegrouper_quarantine" / "dup.txt"
+    destination_path = target_root / ".archiflow_quarantine" / "dup.txt"
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     destination_path.write_text("dup", encoding="utf-8")
 
@@ -132,7 +132,7 @@ def test_transaction_service_recover_interrupted_transactions_rolls_back_and_mar
             TransactionEntry(
                 action=TransactionAction.QUARANTINED_DUPLICATE,
                 source_path=source_root / "pending.txt",
-                destination_path=target_root / ".filegrouper_quarantine" / "pending.txt",
+                destination_path=target_root / ".archiflow_quarantine" / "pending.txt",
                 timestamp_utc=datetime.now(tz=timezone.utc),
                 status=TransactionStatus.PENDING,
                 error_message="cancelled",

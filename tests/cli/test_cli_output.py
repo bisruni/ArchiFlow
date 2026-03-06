@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper import logger as logger_module
-from filegrouper.cli import main, print_summary
-from filegrouper.models import OperationSummary
-from filegrouper.pipeline import RunResult
+from archiflow import logger as logger_module
+from archiflow.cli import main, print_summary
+from archiflow.models import OperationSummary
+from archiflow.pipeline import RunResult
 
 
 @pytest.fixture(autouse=True)

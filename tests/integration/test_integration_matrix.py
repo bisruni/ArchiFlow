@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.duplicate_detector import DuplicateDetector
-from filegrouper.models import (
+from archiflow.duplicate_detector import DuplicateDetector
+from archiflow.models import (
     DedupeMode,
     ExecutionScope,
     OperationSummary,
@@ -15,11 +15,11 @@ from filegrouper.models import (
     OrganizationMode,
     ScanFilterOptions,
 )
-from filegrouper.organizer import FileOrganizer
-from filegrouper.pause_controller import PauseController
-from filegrouper.pipeline import FileGrouperEngine, RunOptions
-from filegrouper.scanner import FileScanner
-from filegrouper.transaction_service import TransactionService
+from archiflow.organizer import FileOrganizer
+from archiflow.pause_controller import PauseController
+from archiflow.pipeline import ArchiFlowEngine, RunOptions
+from archiflow.scanner import FileScanner
+from archiflow.transaction_service import TransactionService
 
 
 @pytest.mark.parametrize("duplicate_count", list(range(2, 42)))
@@ -118,7 +118,7 @@ def test_integration_pipeline_scope_matrix(tmp_path: Path, scope: ExecutionScope
     (source / "b.txt").write_text("dup", encoding="utf-8")
     (source / "c.txt").write_text("x", encoding="utf-8")
 
-    engine = FileGrouperEngine()
+    engine = ArchiFlowEngine()
     result = engine.run(
         RunOptions(
             source_path=source,

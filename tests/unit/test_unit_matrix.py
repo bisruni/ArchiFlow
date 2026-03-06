@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from filegrouper.classifier import (
+from archiflow.classifier import (
     APPLICATION_EXTENSIONS,
     ARCHIVE_EXTENSIONS,
     AUDIO_EXTENSIONS,
@@ -17,9 +17,9 @@ from filegrouper.classifier import (
     folder_name,
     get_season,
 )
-from filegrouper.models import FileCategory, ScanFilterOptions
-from filegrouper.utils import format_size
-from filegrouper.validators import validate_similarity_max_distance
+from archiflow.models import FileCategory, ScanFilterOptions
+from archiflow.utils import format_size
+from archiflow.validators import validate_similarity_max_distance
 
 EXT_CASES = (
     [(ext, FileCategory.IMAGE) for ext in sorted(IMAGE_EXTENSIONS)]

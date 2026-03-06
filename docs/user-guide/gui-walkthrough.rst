@@ -42,7 +42,7 @@ Karantina dosyalari su yolda tutulur:
 
 .. code-block:: text
 
-   <target>/.filegrouper_quarantine/<timestamp>/
+   <target>/.archiflow_quarantine/<timestamp>/
 
 GUI uzerinden `Karantina Klasorunu Ac` ile hizli erisebilirsiniz.
 
